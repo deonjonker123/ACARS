@@ -1,16 +1,30 @@
+"""
+ui/live_monitor.py
+
+A small PySide6 window that polls FlightSessionController on a timer and
+displays live telemetry plus a running event log.
+
+This file used to own its own connector/tracker/db/airport-lookup wiring
+directly. That's now all consolidated in core/flight_session.py so it
+isn't duplicated between this window and any other UI (e.g. a future
+Home page live-flight card) - this file's only job now is rendering
+whatever FlightSessionController.tick() returns.
+
+Run directly:
+    python ui/live_monitor.py
+"""
+
 import sys
+import os
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QLabel, QListWidget, QFrame
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QGridLayout,
+    QLabel, QListWidget, QFrame
 )
 from PySide6.QtCore import QTimer, Qt
 
-import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from connectors.msfs import MSFSConnector
-from core.flight_state import FlightStateTracker
-
+from core.flight_session import FlightSessionController
 
 POLL_INTERVAL_MS = 1000
 
@@ -30,17 +44,22 @@ class LiveMonitorWindow(QMainWindow):
         self.setWindowTitle("ACARS - Live Monitor (MSFS)")
         self.resize(560, 640)
 
-        self.connector = MSFSConnector()
-        self.tracker = FlightStateTracker()
-        self.connected = False
+        self.controller = FlightSessionController()
 
         self._build_ui()
+
+        if self.controller.airport_lookup_ready:
+            count = len(self.controller.airport_lookup._airports)
+            self.airport_status_label.setText(f"Airport DB: {count} airports loaded")
+        else:
+            self.airport_status_label.setText(
+                "Airport DB: not found (data/airports.csv missing) - using raw coordinates"
+            )
+            self.airport_status_label.setStyleSheet("font-size: 11px; color: #e67e22;")
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(POLL_INTERVAL_MS)
-
-        self._try_connect()
 
     # ---------------- UI construction ----------------
 
@@ -53,13 +72,16 @@ class LiveMonitorWindow(QMainWindow):
         self.status_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         root.addWidget(self.status_label)
 
+        self.airport_status_label = QLabel("")
+        self.airport_status_label.setStyleSheet("font-size: 11px; color: #888;")
+        root.addWidget(self.airport_status_label)
+
         self.state_label = QLabel("State: —")
         self.state_label.setStyleSheet("font-size: 13px;")
         root.addWidget(self.state_label)
 
         root.addWidget(self._divider())
 
-        # Grid of live stat labels
         grid = QGridLayout()
         self.value_labels = {}
         fields = [
@@ -69,7 +91,6 @@ class LiveMonitorWindow(QMainWindow):
             ("ground_velocity", "Ground Speed"),
             ("vertical_speed", "Vertical Speed"),
             ("heading_true", "Heading"),
-            ("heading_true_raw", "Heading (raw, pre-conversion)"),
             ("g_force", "G-Force (current)"),
             ("g_force_peak", "G-Force (peak)"),
             ("fuel_total_weight", "Fuel Weight"),
@@ -107,39 +128,18 @@ class LiveMonitorWindow(QMainWindow):
         line.setFrameShadow(QFrame.Sunken)
         return line
 
-    # ---------------- Connection handling ----------------
-
-    def _try_connect(self):
-        try:
-            self.connector.connect()
-            self.connected = True
-            self.status_label.setText("Connected to MSFS")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2ecc71;")
-        except Exception as e:
-            self.connected = False
-            self.status_label.setText(f"Not connected - retrying... ({e})")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #e74c3c;")
-
     # ---------------- Polling loop ----------------
 
     def _tick(self):
-        if not self.connected:
-            self._try_connect()
-            return
+        result = self.controller.tick()
 
-        try:
-            data = self.connector.read()
-        except Exception as e:
-            self.connected = False
-            self.status_label.setText(f"Connection lost - retrying... ({e})")
+        if not result["connected"]:
+            self.status_label.setText("Not connected - retrying...")
             self.status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #e74c3c;")
+            self.state_label.setText("State: —")
             return
 
-        # connect() succeeding only means the SimConnect handshake worked -
-        # it does NOT mean you're in an active flight with real data yet.
-        # read() returns None until actual flight data is available, so
-        # that's the real signal for "connected and ready".
-        if data is None:
+        if not result["has_data"]:
             self.status_label.setText("Connected to SimConnect - waiting for active flight...")
             self.status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #f39c12;")
             self.state_label.setText("State: —")
@@ -147,13 +147,15 @@ class LiveMonitorWindow(QMainWindow):
 
         self.status_label.setText("Connected - receiving live flight data")
         self.status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2ecc71;")
-
-        result = self.tracker.update(data)
         self.state_label.setText(f"State: {result['state']}")
-        self._update_values(data, result["live"])
+
+        self._update_values(result["data"], result["live"])
 
         for event in result["events"]:
             self._log_event(event)
+
+        if result["recorded_flight_id"] is not None:
+            self._log_event({"type": "saved_to_logbook", "flight_id": result["recorded_flight_id"]})
 
     def _update_values(self, data, live):
         aircraft = data.get("title") or data.get("atc_type") or "—"
@@ -163,7 +165,6 @@ class LiveMonitorWindow(QMainWindow):
         self.value_labels["ground_velocity"].setText(fmt(data.get("ground_velocity"), " kt", 0))
         self.value_labels["vertical_speed"].setText(fmt(data.get("vertical_speed"), " fpm", 0))
         self.value_labels["heading_true"].setText(fmt(data.get("heading_true"), "°", 0))
-        self.value_labels["heading_true_raw"].setText(str(data.get("heading_true_raw")))
         self.value_labels["g_force"].setText(fmt(data.get("g_force"), " G", 2))
         self.value_labels["g_force_peak"].setText(fmt(live.get("g_force_peak"), " G", 2))
         self.value_labels["fuel_total_weight"].setText(fmt(data.get("fuel_total_weight"), " lbs", 0))
@@ -190,7 +191,7 @@ class LiveMonitorWindow(QMainWindow):
         self.event_list.scrollToBottom()
 
     def closeEvent(self, event):
-        self.connector.disconnect()
+        self.controller.disconnect()
         super().closeEvent(event)
 
 

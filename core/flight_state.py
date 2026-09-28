@@ -1,3 +1,23 @@
+"""
+core/flight_state.py
+
+Takes normalized telemetry dicts (as produced by any connector, e.g.
+connectors.msfs.MSFSConnector.read()) one tick at a time, and turns them
+into flight-level facts: block start/end, distance flown, fuel burned,
+landing quality, gear/flap speed checks, and taxi timing.
+
+This module knows nothing about SimConnect, UDP, or any specific sim -
+it only understands the normalized dict shape. That's what lets the same
+tracker serve MSFS, P3D, and X-Plane connectors later.
+
+Usage:
+    tracker = FlightStateTracker()
+    result = tracker.update(data)   # data = connector.read() dict
+    # result["state"]  -> current state string
+    # result["events"] -> list of event dicts that just fired this tick
+    # result["live"]   -> running stats (distance, fuel burned, elapsed time)
+"""
+
 import time
 import math
 
@@ -47,6 +67,14 @@ class FlightStateTracker:
         self.aircraft_title = None
         self.aircraft_atc_type = None
         self.aircraft_atc_model = None
+        self.aircraft_atc_id = None
+
+        # Position at block start/end - lat/lon only for now (no ICAO
+        # airport lookup exists yet, see live_monitor for placeholder handling)
+        self.dep_lat = None
+        self.dep_lon = None
+        self.arr_lat = None
+        self.arr_lon = None
 
     def update(self, data):
         """
@@ -79,6 +107,9 @@ class FlightStateTracker:
             self.aircraft_title = data.get("title")
             self.aircraft_atc_type = data.get("atc_type")
             self.aircraft_atc_model = data.get("atc_model")
+            self.aircraft_atc_id = data.get("atc_id")
+            self.dep_lat = data.get("latitude")
+            self.dep_lon = data.get("longitude")
             self.state = "BLOCK"
             events.append({
                 "type": "block_start",
@@ -86,6 +117,9 @@ class FlightStateTracker:
                 "aircraft_title": self.aircraft_title,
                 "atc_type": self.aircraft_atc_type,
                 "atc_model": self.aircraft_atc_model,
+                "atc_id": self.aircraft_atc_id,
+                "dep_lat": self.dep_lat,
+                "dep_lon": self.dep_lon,
             })
 
         elif self.state == "BLOCK":
@@ -162,18 +196,40 @@ class FlightStateTracker:
                 self.block_end_time = time.time()
                 self.block_hours = (self.block_end_time - self.block_start_time) / 3600
                 self.fuel_at_block_end = data.get("fuel_total_weight")
+                self.arr_lat = data.get("latitude")
+                self.arr_lon = data.get("longitude")
                 if self.fuel_at_block_start is not None and self.fuel_at_block_end is not None:
                     self.fuel_burned = self.fuel_at_block_start - self.fuel_at_block_end
                 events.append({
                     "type": "block_end",
                     "time": self.block_end_time,
+                    "block_start_time": self.block_start_time,
                     "block_hours": self.block_hours,
                     "distance_nm": self.distance_nm,
                     "fuel_burned": self.fuel_burned,
                     "landing_vs": self.landing_vs,
                     "landing_g": self.landing_g,
+                    "aircraft_title": self.aircraft_title,
+                    "atc_type": self.aircraft_atc_type,
+                    "atc_model": self.aircraft_atc_model,
+                    "atc_id": self.aircraft_atc_id,
+                    "dep_lat": self.dep_lat,
+                    "dep_lon": self.dep_lon,
+                    "arr_lat": self.arr_lat,
+                    "arr_lon": self.arr_lon,
                 })
                 self.state = "IDLE"
+
+            elif not engine_running and not self.was_airborne:
+                # Engine started, then stopped again without ever getting
+                # airborne - a ground abort / test start, not a real flight.
+                # This must NOT fire a block_end (nothing to log/save), but
+                # the state machine still has to release back to IDLE, or
+                # the app gets stuck permanently in BLOCK state with no way
+                # out (e.g. a UI's Stop button staying disabled forever).
+                events.append({"type": "block_aborted", "time": time.time()})
+                self.state = "IDLE"
+                self.block_start_time = None
 
         self._prev = data
         return self._result(events)

@@ -1,0 +1,701 @@
+{
+  "ranks": [
+    {
+      "id": "student_pilot",
+      "name": "Student Pilot",
+      "min_hours": 0,
+      "order": 1
+    },
+    {
+      "id": "second_officer",
+      "name": "Second Officer",
+      "min_hours": 21,
+      "order": 2
+    },
+    {
+      "id": "first_officer",
+      "name": "First Officer",
+      "min_hours": 51,
+      "order": 3
+    },
+    {
+      "id": "captain",
+      "name": "Captain",
+      "min_hours": 101,
+      "order": 4
+    },
+    {
+      "id": "senior_captain",
+      "name": "Senior Captain",
+      "min_hours": 251,
+      "order": 5
+    },
+    {
+      "id": "atp_first_officer",
+      "name": "ATP First Officer",
+      "min_hours": 501,
+      "order": 6
+    },
+    {
+      "id": "atp_captain",
+      "name": "ATP Captain",
+      "min_hours": 1001,
+      "order": 7
+    },
+    {
+      "id": "atp_senior_captain",
+      "name": "ATP Senior Captain",
+      "min_hours": 1501,
+      "order": 8
+    },
+    {
+      "id": "executive_command_officer",
+      "name": "Executive Command Officer",
+      "min_hours": 3000,
+      "order": 9
+    }
+  ],
+  "aircraft": [
+    {
+      "id": "c172",
+      "name": "C172",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "student_pilot"
+    },
+    {
+      "id": "c185",
+      "name": "C185",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "student_pilot"
+    },
+    {
+      "id": "c208",
+      "name": "C208",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "second_officer"
+    },
+    {
+      "id": "tbm_850",
+      "name": "TBM 850",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "second_officer"
+    },
+    {
+      "id": "tbm_930",
+      "name": "TBM 930",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "first_officer"
+    },
+    {
+      "id": "pc12",
+      "name": "PC12",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "second_officer"
+    },
+    {
+      "id": "b1900",
+      "name": "B1900",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "first_officer"
+    },
+    {
+      "id": "b200",
+      "name": "B200",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "first_officer"
+    },
+    {
+      "id": "b350",
+      "name": "B350",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "q400",
+      "name": "Q400",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "dc3",
+      "name": "DC3",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "dc6",
+      "name": "DC6",
+      "categories": [
+        "prop",
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "connie",
+      "name": "Connie",
+      "categories": [
+        "prop"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "a220",
+      "name": "A220",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "a300",
+      "name": "A300",
+      "categories": [
+        "airliner",
+        "cargo"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "a310",
+      "name": "A310",
+      "categories": [
+        "airliner",
+        "cargo"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "a318",
+      "name": "A318",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "a319",
+      "name": "A319",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "a320",
+      "name": "A320",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "a321",
+      "name": "A321",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "a330",
+      "name": "A330",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "a340",
+      "name": "A340",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "a350",
+      "name": "A350",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "a380",
+      "name": "A380",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "b717",
+      "name": "B717",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b722",
+      "name": "B722",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b733",
+      "name": "B733",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b736",
+      "name": "B736",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b737",
+      "name": "B737",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b738",
+      "name": "B738",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b738m",
+      "name": "B738M",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b739",
+      "name": "B739",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b757",
+      "name": "B757",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b767",
+      "name": "B767",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b777",
+      "name": "B777",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "b747",
+      "name": "B747",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "crj550",
+      "name": "CRJ550",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "crj700",
+      "name": "CRJ700",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "crj900",
+      "name": "CRJ900",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "crj1000",
+      "name": "CRJ1000",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "emb170",
+      "name": "EMB170",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "emb175",
+      "name": "EMB175",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "emb190",
+      "name": "EMB190",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "emb195",
+      "name": "EMB195",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "md82",
+      "name": "MD82",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "md83",
+      "name": "MD83",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "md88",
+      "name": "MD88",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "md11",
+      "name": "MD11",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "f28",
+      "name": "F28",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "f70",
+      "name": "F70",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "f100",
+      "name": "F100",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "bae146_100",
+      "name": "BAE146-100",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "bae146_200",
+      "name": "BAE146-200",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "bae146_300",
+      "name": "BAE146-300",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "bae_rj70",
+      "name": "BAE RJ70",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "bae_rj85",
+      "name": "BAE RJ85",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "bae_rj100",
+      "name": "BAE RJ100",
+      "categories": [
+        "airliner"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "citation_cj4",
+      "name": "Citation CJ4",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "first_officer"
+    },
+    {
+      "id": "citation_x",
+      "name": "Citation X",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "citation_sovereignplus",
+      "name": "Citation Sovereign+",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "hondajet_ha_420",
+      "name": "HondaJet HA-420",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "hawker_800xp",
+      "name": "Hawker 800XP",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "learjet_35a",
+      "name": "Learjet 35A",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "challenger_650",
+      "name": "Challenger 650",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "emb_phenom_300",
+      "name": "EMB Phenom 300",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "first_officer"
+    },
+    {
+      "id": "emb_lineage_1000",
+      "name": "EMB Lineage 1000",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "glf550",
+      "name": "GLF550",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "glf650",
+      "name": "GLF650",
+      "categories": [
+        "bizjet"
+      ],
+      "unlock_rank": "atp_captain"
+    },
+    {
+      "id": "bae146_200_qt",
+      "name": "BAE146-200 QT",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "bae146_300_qt",
+      "name": "BAE146-300 QT",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "emb190f",
+      "name": "EMB190F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "emb195f",
+      "name": "EMB195F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "md11f",
+      "name": "MD11F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "737_bbj",
+      "name": "737 BBJ",
+      "categories": [
+        "bizjet",
+        "cargo"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "bae_rj100_qt",
+      "name": "BAE RJ100 QT",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "captain"
+    },
+    {
+      "id": "b748f",
+      "name": "B748F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b777f",
+      "name": "B777F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "atp_first_officer"
+    },
+    {
+      "id": "b767f",
+      "name": "B767F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "senior_captain"
+    },
+    {
+      "id": "b757f",
+      "name": "B757F",
+      "categories": [
+        "cargo"
+      ],
+      "unlock_rank": "senior_captain"
+    }
+  ]
+}

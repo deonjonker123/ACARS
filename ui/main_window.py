@@ -1,0 +1,380 @@
+"""
+ui/main_window.py
+
+The app shell: sidebar (logo + nav only), a header showing the current
+page's title/subtitle on the left and pilot info (name, rank + badge,
+total hours, current location) on the right, and a stacked content area
+that pages plug into via add_page().
+
+Usage:
+    window = MainWindow(pilot_data=db.get_pilot())
+    window.add_page("home", "Home", "", home_page_widget)
+    window.add_page("logbook", "Logbook", "FLIGHT HISTORY", logbook_widget)
+    window.navigate_to("home")
+    window.show()
+"""
+
+import os
+import sys
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QStackedWidget, QFrame, QProgressBar
+)
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QFont
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ui.theme import PALETTE, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
+from core.pilot import PilotProgress
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
+
+SIDEBAR_WIDTH = 220
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, pilot_data=None):
+        super().__init__()
+        self.setWindowTitle("ACARS")
+        self.resize(1400, 860)
+
+        self.pilot_data = pilot_data or {}
+        self._nav_buttons = {}
+        self._page_titles = {}
+
+        central = QWidget()
+        central.setObjectName("MainPanel")
+        self.setCentralWidget(central)
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        root_layout.addWidget(self._build_sidebar())
+
+        right_side = QVBoxLayout()
+        right_side.setContentsMargins(0, 0, 0, 0)
+        right_side.setSpacing(0)
+        right_side.addWidget(self._build_header())
+
+        self.content_stack = QStackedWidget()
+        right_side.addWidget(self.content_stack)
+
+        right_container = QWidget()
+        right_container.setLayout(right_side)
+        root_layout.addWidget(right_container)
+
+    # ---------------- Sidebar (logo + nav only now) ----------------
+
+    def _build_sidebar(self):
+        sidebar = QWidget()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(SIDEBAR_WIDTH)
+
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(0, 20, 0, 16)
+        layout.setSpacing(4)
+
+        logo_container = QWidget()
+        logo_layout = QVBoxLayout(logo_container)
+        logo_layout.setContentsMargins(20, 0, 20, 20)
+        if logo_exists():
+            pixmap = QPixmap(LOGO_PATH)
+            logo_label = QLabel()
+            logo_label.setPixmap(pixmap.scaledToHeight(40, Qt.SmoothTransformation))
+            logo_layout.addWidget(logo_label)
+        else:
+            logo_label = QLabel("ACARS")
+            logo_label.setFont(font_heading(20))
+            logo_label.setStyleSheet(f"color: {PALETTE['text_primary']};")
+            logo_layout.addWidget(logo_label)
+        layout.addWidget(logo_container)
+
+        self.nav_items = [
+            ("home", "Dashboard"),
+            ("logbook", "Logbook"),
+            ("aircraft", "Aircraft"),
+        ]
+        for key, label in self.nav_items:
+            btn = QPushButton(label)
+            btn.setObjectName("NavItem")
+            btn.setProperty("active", False)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFont(font_label(11))
+            btn.clicked.connect(lambda checked=False, k=key: self.navigate_to(k))
+            layout.addWidget(btn)
+            self._nav_buttons[key] = btn
+
+        layout.addStretch()
+        return sidebar
+
+    # ---------------- Header (now carries pilot info on the right) ----------------
+
+    def _build_header(self):
+        header = QWidget()
+        header.setObjectName("Header")
+        header.setFixedHeight(90)
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(32, 16, 32, 16)
+
+        # Left: page title/subtitle
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title_col.addStretch()
+
+        self.header_title = QLabel("")
+        self.header_title.setObjectName("PageTitle")
+        self.header_title.setFont(font_heading(26))
+        title_col.addWidget(self.header_title)
+
+        self.header_subtitle = QLabel("")
+        self.header_subtitle.setObjectName("PageSubtitle")
+        self.header_subtitle.setFont(font_label(10))
+        title_col.addWidget(self.header_subtitle)
+        title_col.addStretch()
+
+        layout.addLayout(title_col)
+        layout.addStretch()
+
+        # Right: pilot info row
+        layout.addWidget(self._build_pilot_info())
+
+        return header
+
+    def _build_pilot_info(self):
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(20)
+
+        # ---------------------------------------------------------
+        # Name + rank + badge
+        # ---------------------------------------------------------
+        name_col = QVBoxLayout()
+        name_col.setContentsMargins(0, 0, 0, 0)
+        name_col.setSpacing(2)
+
+        name = self.pilot_data.get("name") or "Unnamed Pilot"
+
+        name_label = QLabel(name)
+        name_label.setObjectName("PilotName")
+        name_label.setFont(garamond(22, QFont.Bold))
+        name_label.setStyleSheet(
+            f"color: {PALETTE['text_primary']};"
+        )
+        name_col.addWidget(name_label)
+
+        rank_row = QHBoxLayout()
+        rank_row.setContentsMargins(0, 0, 0, 0)
+        rank_row.setSpacing(6)
+
+        rank_label = QLabel(
+            self.pilot_data.get("rank") or "Student Pilot"
+        )
+        rank_label.setFont(font_label(10))
+        rank_label.setStyleSheet(
+            f"color: {PALETTE['accent']};"
+        )
+        rank_row.addWidget(rank_label)
+
+        badge_path = self._resolve_badge_path(
+            self.pilot_data.get("rank_badge_path")
+        )
+
+        if badge_path and os.path.exists(badge_path):
+            badge_label = QLabel()
+            badge_label.setPixmap(
+                QPixmap(badge_path).scaled(
+                    59,
+                    21,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+            rank_row.addWidget(badge_label)
+
+        rank_row.addStretch()
+        name_col.addLayout(rank_row)
+
+        row.addLayout(name_col)
+
+        # ---------------------------------------------------------
+        # Progress
+        # ---------------------------------------------------------
+        progress_col = QVBoxLayout()
+        progress_col.setContentsMargins(0, 10, 0, 0)
+        progress_col.setSpacing(3)
+
+        total_hours = self.pilot_data.get("total_hours_flown") or 0
+        progress = PilotProgress(total_hours)
+
+        bar = QProgressBar()
+        bar.setObjectName("RankProgress")
+        bar.setTextVisible(False)
+        bar.setFixedWidth(120)
+
+        if progress.next_rank:
+            current_min = progress.current_rank["min_hours"]
+            next_min = progress.next_rank["min_hours"]
+            span = next_min - current_min
+
+            fraction = (
+                (total_hours - current_min) / span
+                if span > 0
+                else 1.0
+            )
+
+            fraction = max(0.0, min(1.0, fraction))
+            bar.setValue(int(fraction * 100))
+
+            caption_text = (
+                f"{progress.hours_to_next_rank:.1f} hrs\n"
+                f"to {progress.next_rank['name']}"
+            )
+        else:
+            bar.setValue(100)
+            caption_text = "Top rank reached"
+
+        progress_col.addWidget(bar)
+
+        progress_caption = QLabel(caption_text)
+        progress_caption.setFont(font_label(8))
+        progress_caption.setStyleSheet(
+            f"color: {PALETTE['text_muted']};"
+        )
+        progress_col.addWidget(progress_caption)
+
+        row.addLayout(progress_col)
+
+        # ---------------------------------------------------------
+        # Hours
+        # ---------------------------------------------------------
+        row.addWidget(self._vdivider())
+
+        hours = self._stat_block(
+            f"{total_hours:.1f}",
+            "HOURS",
+        )
+        row.addWidget(hours)
+
+        # ---------------------------------------------------------
+        # Location
+        # ---------------------------------------------------------
+        row.addWidget(self._vdivider())
+
+        location = self._stat_block(
+            self.pilot_data.get("current_location") or "—",
+            "LOCATION",
+        )
+        row.addWidget(location)
+
+        return container
+
+    def _stat_block(self, value, label):
+        block = QWidget()
+        layout = QVBoxLayout(block)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        value_label = QLabel(value)
+        value_label.setFont(font_heading(16))
+        value_label.setStyleSheet(f"color: {PALETTE['text_primary']};")
+        value_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(value_label)
+
+        caption = QLabel(label)
+        caption.setFont(font_label(8))
+        caption.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        caption.setAlignment(Qt.AlignCenter)
+        layout.addWidget(caption)
+
+        return block
+
+    def _vdivider(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.VLine)
+        line.setStyleSheet(f"color: {PALETTE['border']};")
+        line.setFixedHeight(36)
+        return line
+
+    def _resolve_badge_path(self, rank_badge_path):
+        """rank_badge_path is stored as e.g. 'badges/captain.png' (see
+        core/db.py _sync_pilot_rank). Resolve it against assets/."""
+        if not rank_badge_path:
+            return None
+        return os.path.join(_ASSETS_DIR, rank_badge_path)
+
+    # ---------------- Page management ----------------
+
+    def add_page(self, key, title, subtitle, widget):
+        self.content_stack.addWidget(widget)
+        self._page_titles[key] = (title, subtitle, widget)
+
+    def get_page(self, key):
+        """Lets one page reach another to trigger things like a refresh -
+        e.g. Home's Save Flight button calling Logbook's refresh() after
+        writing a new flight, without the two pages needing to know about
+        each other directly."""
+        entry = self._page_titles.get(key)
+        return entry[2] if entry else None
+
+    def navigate_to(self, key):
+        if key not in self._page_titles:
+            return
+        title, subtitle, widget = self._page_titles[key]
+        self.header_title.setText(title)
+        self.header_subtitle.setText(subtitle.upper() if subtitle else "")
+        self.content_stack.setCurrentWidget(widget)
+
+        for k, btn in self._nav_buttons.items():
+            btn.setProperty("active", k == key)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def update_pilot_data(self, pilot_data):
+        """Call after logging a flight to refresh the header's pilot info
+        (hours/rank/location change) without rebuilding the whole window."""
+        self.pilot_data = pilot_data
+        # Simplest correct approach: rebuild just the pilot info widget.
+        old_widget = self.findChild(QWidget, "Header").layout().itemAt(2).widget()
+        new_widget = self._build_pilot_info()
+        self.findChild(QWidget, "Header").layout().replaceWidget(old_widget, new_widget)
+        old_widget.deleteLater()
+
+
+if __name__ == "__main__":
+    from ui.theme import build_stylesheet
+
+    app = QApplication(sys.argv)
+    load_fonts()
+    app.setStyleSheet(build_stylesheet())
+
+    dummy_pilot = {
+        "name": "Deon Jonker",
+        "rank": "Captain",
+        "rank_badge_path": "badges/captain.png",
+        "total_hours_flown": 137.4,
+        "current_location": "KSMO",
+    }
+
+
+    window = MainWindow(pilot_data=dummy_pilot)
+
+    def placeholder(text):
+        w = QWidget()
+        l = QVBoxLayout(w)
+        lbl = QLabel(text)
+        lbl.setFont(font(14))
+        lbl.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        l.addWidget(lbl, alignment=Qt.AlignCenter)
+        return w
+
+    window.add_page("home", "Dashboard", "Virtual Aviation Gumph", placeholder("Home page goes here"))
+    window.add_page("logbook", "Logbook", "Flight History", placeholder("Logbook page goes here"))
+    window.add_page("aircraft", "Aircraft", "Your Fleet", placeholder("Aircraft page goes here"))
+    window.navigate_to("home")
+
+    window.show()
+    sys.exit(app.exec())
