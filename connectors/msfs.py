@@ -18,9 +18,6 @@ import re
 from SimConnect import SimConnect, AircraftRequests
 
 
-# Maps our normalized key names -> actual SimConnect variable names.
-# Keeping this as one dict makes it easy to see everything we're pulling,
-# and easy to extend later without hunting through code.
 SIMVARS = {
     "on_ground": "SIM_ON_GROUND",
     "eng1_combustion": "GENERAL_ENG_COMBUSTION:1",
@@ -52,13 +49,7 @@ SIMVARS = {
     "design_speed_vle": "DESIGN_SPEED_VLE",
 }
 
-# Keys whose raw SimConnect values come back as bytes and need decoding.
 _STRING_KEYS = {"title", "atc_type", "atc_model", "atc_id"}
-
-# Keys where the wrapper returns a raw, unresolved SimConnect localization
-# key instead of the actual text - e.g. "ATCCOM.ATC_NAME CESSNA.0.text"
-# instead of "CESSNA". The real value is embedded in a predictable pattern,
-# so we extract it with regex rather than needing a real string-table lookup.
 _ATCCOM_KEYS = {"atc_type", "atc_model"}
 _ATCCOM_PATTERN = re.compile(r'ATCCOM\.(?:ATC_NAME|AC_MODEL)\s+(.+?)\.\d+\.text')
 
@@ -69,20 +60,12 @@ def _sanitize_atccom(raw):
     match = _ATCCOM_PATTERN.match(raw)
     if match:
         return match.group(1).strip()
-    return raw.strip()  # already-clean text - don't blank it out
+    return raw.strip()
 
-# Keys where the python-simconnect wrapper returns radians despite the
-# SimConnect variable name implying degrees - a known quirk on angular
-# simvars. We convert to degrees ourselves rather than trust the name.
 _RADIAN_KEYS = {"heading_true"}
 
 
 class MSFSConnector:
-    # This connector is shared between MSFS and P3D - both speak SimConnect
-    # via the same wrapper, and python-simconnect doesn't expose a clean way
-    # to tell which one actually responded (that needs deeper SimConnect API
-    # access than this wrapper gives us). Labeled honestly rather than
-    # guessing which one you're actually running.
     SIM_NAME = "MSFS / P3D (SimConnect)"
 
     def __init__(self):
@@ -117,27 +100,19 @@ class MSFSConnector:
         for key, simvar in SIMVARS.items():
             raw[key] = self._aq.get(simvar)
 
-        # Bail out early if the essentials aren't ready - avoids handing
-        # callers a half-populated dict they'd have to null-check anyway.
         if raw["on_ground"] is None or raw["eng1_combustion"] is None:
             return None
 
-        # Clean up string fields (bytes -> str, strip null padding)
         for key in _STRING_KEYS:
             val = raw.get(key)
             if isinstance(val, bytes):
                 raw[key] = val.decode("utf-8").strip("\x00").strip()
 
-        # Clean up ATCCOM localization keys into plain text
         for key in _ATCCOM_KEYS:
             raw[key] = _sanitize_atccom(raw.get(key))
 
-        # Derived convenience field: is any engine running
         raw["engine_running"] = bool(raw["eng1_combustion"]) or bool(raw["eng2_combustion"])
 
-        # Convert known radian-returning fields to degrees.
-        # Also keep the untouched raw value alongside, so we can verify
-        # what the sim is actually returning rather than assume.
         for key in _RADIAN_KEYS:
             val = raw.get(key)
             raw[f"{key}_raw"] = val

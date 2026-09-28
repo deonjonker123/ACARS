@@ -58,11 +58,7 @@ class PilotProgress:
         self.unlocked_aircraft = self._compute_unlocked()
         self.locked_aircraft = self._compute_locked()
 
-    # ---------------- internal computation ----------------
-
     def _compute_current_rank(self):
-        # Ranks are sorted ascending by min_hours - the current rank is the
-        # highest one whose threshold we've met or passed.
         current = self.ranks[0]
         for rank in self.ranks:
             if self.total_hours >= rank["min_hours"]:
@@ -75,7 +71,7 @@ class PilotProgress:
         for rank in self.ranks:
             if rank["min_hours"] > self.total_hours:
                 return rank
-        return None  # already at the top rank
+        return None
 
     def _compute_unlocked(self):
         unlocked_rank_ids = {
@@ -93,8 +89,6 @@ class PilotProgress:
             if a["unlock_rank"] not in unlocked_rank_ids:
                 locked.append((a, rank_by_id[a["unlock_rank"]]))
         return locked
-
-    # ---------------- convenience lookups ----------------
 
     def is_unlocked(self, aircraft_id):
         """Check whether a specific aircraft (by id) is unlocked at current hours."""

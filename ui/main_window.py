@@ -1,10 +1,11 @@
 """
 ui/main_window.py
 
-The app shell: sidebar (logo + nav only), a header showing the current
-page's title/subtitle on the left and pilot info (name, rank + badge,
-total hours, current location) on the right, and a stacked content area
-that pages plug into via add_page().
+The app shell: sidebar (logo + nav, with Settings pinned to the bottom
+below a divider), a header showing the current page's title/subtitle on
+the left and pilot info (name, rank + badge, total hours, current
+location) on the right, and a stacked content area that pages plug into
+via add_page().
 
 Usage:
     window = MainWindow(pilot_data=db.get_pilot())
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStackedWidget, QFrame, QProgressBar
 )
-from PySide6.QtGui import QPixmap
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QFont
 
@@ -66,8 +67,6 @@ class MainWindow(QMainWindow):
         right_container.setLayout(right_side)
         root_layout.addWidget(right_container)
 
-    # ---------------- Sidebar (logo + nav only now) ----------------
-
     def _build_sidebar(self):
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
@@ -94,8 +93,10 @@ class MainWindow(QMainWindow):
 
         self.nav_items = [
             ("home", "Dashboard"),
+            ("flight_plan", "Flight Plan"),
             ("logbook", "Logbook"),
             ("aircraft", "Aircraft"),
+            ("ranks", "Ranks"),
         ]
         for key, label in self.nav_items:
             btn = QPushButton(label)
@@ -108,9 +109,22 @@ class MainWindow(QMainWindow):
             self._nav_buttons[key] = btn
 
         layout.addStretch()
-        return sidebar
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(f"background-color: {PALETTE['border']}; border: none;")
+        layout.addWidget(divider)
+        layout.addSpacing(8)
 
-    # ---------------- Header (now carries pilot info on the right) ----------------
+        settings_btn = QPushButton("Settings")
+        settings_btn.setObjectName("NavItem")
+        settings_btn.setProperty("active", False)
+        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setFont(font_label(11))
+        settings_btn.clicked.connect(lambda checked=False: self.navigate_to("settings"))
+        layout.addWidget(settings_btn)
+        self._nav_buttons["settings"] = settings_btn
+
+        return sidebar
 
     def _build_header(self):
         header = QWidget()
@@ -118,8 +132,6 @@ class MainWindow(QMainWindow):
         header.setFixedHeight(90)
         layout = QHBoxLayout(header)
         layout.setContentsMargins(32, 16, 32, 16)
-
-        # Left: page title/subtitle
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title_col.addStretch()
@@ -137,8 +149,6 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(title_col)
         layout.addStretch()
-
-        # Right: pilot info row
         layout.addWidget(self._build_pilot_info())
 
         return header
@@ -148,10 +158,6 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(20)
-
-        # ---------------------------------------------------------
-        # Name + rank + badge
-        # ---------------------------------------------------------
         name_col = QVBoxLayout()
         name_col.setContentsMargins(0, 0, 0, 0)
         name_col.setSpacing(2)
@@ -199,10 +205,6 @@ class MainWindow(QMainWindow):
         name_col.addLayout(rank_row)
 
         row.addLayout(name_col)
-
-        # ---------------------------------------------------------
-        # Progress
-        # ---------------------------------------------------------
         progress_col = QVBoxLayout()
         progress_col.setContentsMargins(0, 10, 0, 0)
         progress_col.setSpacing(3)
@@ -247,10 +249,6 @@ class MainWindow(QMainWindow):
         progress_col.addWidget(progress_caption)
 
         row.addLayout(progress_col)
-
-        # ---------------------------------------------------------
-        # Hours
-        # ---------------------------------------------------------
         row.addWidget(self._vdivider())
 
         hours = self._stat_block(
@@ -258,14 +256,12 @@ class MainWindow(QMainWindow):
             "HOURS",
         )
         row.addWidget(hours)
-
-        # ---------------------------------------------------------
-        # Location
-        # ---------------------------------------------------------
         row.addWidget(self._vdivider())
 
         location = self._stat_block(
-            self.pilot_data.get("current_location") or "—",
+            self.pilot_data.get("current_location")
+            or self.pilot_data.get("home_airport")
+            or "—",
             "LOCATION",
         )
         row.addWidget(location)
@@ -306,8 +302,6 @@ class MainWindow(QMainWindow):
             return None
         return os.path.join(_ASSETS_DIR, rank_badge_path)
 
-    # ---------------- Page management ----------------
-
     def add_page(self, key, title, subtitle, widget):
         self.content_stack.addWidget(widget)
         self._page_titles[key] = (title, subtitle, widget)
@@ -337,7 +331,6 @@ class MainWindow(QMainWindow):
         """Call after logging a flight to refresh the header's pilot info
         (hours/rank/location change) without rebuilding the whole window."""
         self.pilot_data = pilot_data
-        # Simplest correct approach: rebuild just the pilot info widget.
         old_widget = self.findChild(QWidget, "Header").layout().itemAt(2).widget()
         new_widget = self._build_pilot_info()
         self.findChild(QWidget, "Header").layout().replaceWidget(old_widget, new_widget)
@@ -359,7 +352,6 @@ if __name__ == "__main__":
         "current_location": "KSMO",
     }
 
-
     window = MainWindow(pilot_data=dummy_pilot)
 
     def placeholder(text):
@@ -372,8 +364,11 @@ if __name__ == "__main__":
         return w
 
     window.add_page("home", "Dashboard", "Virtual Aviation Gumph", placeholder("Home page goes here"))
+    window.add_page("flight_plan", "Flight Plan", "Dispatched Flight", placeholder("Flight Plan page goes here"))
     window.add_page("logbook", "Logbook", "Flight History", placeholder("Logbook page goes here"))
     window.add_page("aircraft", "Aircraft", "Your Fleet", placeholder("Aircraft page goes here"))
+    window.add_page("ranks", "Ranks", "Career Progression", placeholder("Ranks page goes here"))
+    window.add_page("settings", "Settings", "Pilot Profile", placeholder("Settings page goes here"))
     window.navigate_to("home")
 
     window.show()

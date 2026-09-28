@@ -13,6 +13,7 @@ tracker serve MSFS, P3D, and X-Plane connectors later.
 Usage:
     tracker = FlightStateTracker()
     result = tracker.update(data)   # data = connector.read() dict
+    result = tracker.update(data, can_start_block=False)   # engine start ignored
     # result["state"]  -> current state string
     # result["events"] -> list of event dicts that just fired this tick
     # result["live"]   -> running stats (distance, fuel burned, elapsed time)
@@ -26,7 +27,7 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
     """Great-circle distance between two lat/lon points, in nautical miles."""
     if None in (lat1, lon1, lat2, lon2):
         return 0.0
-    r_nm = 3440.065  # Earth radius in nautical miles
+    r_nm = 3440.065
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
@@ -40,45 +41,42 @@ class FlightStateTracker:
 
     def reset(self):
         """Reset all tracking state - call this after a completed flight if reusing the tracker."""
-        self.state = "IDLE"  # IDLE -> BLOCK -> IDLE (on completion)
+        self.state = "IDLE"
         self.was_airborne = False
 
         self.block_start_time = None
         self.block_end_time = None
         self.block_hours = None
-
-        # Previous-tick values, used to detect transitions/events
         self._prev = {}
-
-        # Landing quality capture
         self.g_force_peak = None
         self.landing_vs = None
         self.landing_g = None
-
-        # Distance tracking
         self.distance_nm = 0.0
-
-        # Fuel tracking
         self.fuel_at_block_start = None
         self.fuel_at_block_end = None
         self.fuel_burned = None
-
-        # Aircraft identity captured at block start
         self.aircraft_title = None
         self.aircraft_atc_type = None
         self.aircraft_atc_model = None
         self.aircraft_atc_id = None
-
-        # Position at block start/end - lat/lon only for now (no ICAO
-        # airport lookup exists yet, see live_monitor for placeholder handling)
         self.dep_lat = None
         self.dep_lon = None
         self.arr_lat = None
         self.arr_lon = None
 
-    def update(self, data):
+    def update(self, data, can_start_block=True):
         """
-        Process one tick of telemetry. Returns:
+        Process one tick of telemetry.
+
+        can_start_block: whether an engine start may begin a new block
+        right now. The owner decides this (e.g. FlightSessionController only
+        allows it with a dispatched flight plan, parked at the planned
+        origin). While False, a running engine in IDLE is simply ignored;
+        as soon as it becomes True with the engine running, the block starts
+        on that tick. Has no effect once a block is already in progress.
+        Defaults to True, the old "any engine start is a flight" behaviour.
+
+        Returns:
             {
                 "state": str,
                 "events": [ {type, time, ...detail}, ... ],   # new this tick only
@@ -95,8 +93,7 @@ class FlightStateTracker:
         on_ground = data.get("on_ground")
         engine_running = data.get("engine_running")
 
-        # ---------------- Block start ----------------
-        if self.state == "IDLE" and engine_running:
+        if self.state == "IDLE" and engine_running and can_start_block:
             self.block_start_time = time.time()
             self.was_airborne = False
             self.g_force_peak = None
@@ -123,19 +120,16 @@ class FlightStateTracker:
             })
 
         elif self.state == "BLOCK":
-            # ---- Airborne tracking ----
             if on_ground == 0.0:
                 if not self.was_airborne:
                     events.append({"type": "airborne", "time": time.time()})
                 self.was_airborne = True
 
-                # Track peak G while airborne (landing bump shows up here)
                 g = data.get("g_force")
                 if g is not None:
                     if self.g_force_peak is None or g > self.g_force_peak:
                         self.g_force_peak = g
 
-            # ---- Touchdown detection (on_ground transition False -> True) ----
             prev_on_ground = prev.get("on_ground")
             if self.was_airborne and prev_on_ground == 0.0 and on_ground == 1.0:
                 self.landing_vs = data.get("vertical_speed")
@@ -147,7 +141,6 @@ class FlightStateTracker:
                     "g_force": self.landing_g,
                 })
 
-            # ---- Gear/flap change events ----
             gear_now = data.get("gear_handle_position")
             gear_prev = prev.get("gear_handle_position")
             if gear_prev is not None and gear_now is not None and gear_now != gear_prev:
@@ -172,10 +165,8 @@ class FlightStateTracker:
                     "time": time.time(),
                     "position": flaps_now,
                     "airspeed": data.get("airspeed_indicated"),
-                    # No verified VFE simvar available - logged without a limit check.
                 })
 
-            # ---- Parking brake changes (taxi timing) ----
             brake_now = data.get("parking_brake")
             brake_prev = prev.get("parking_brake")
             if brake_prev is not None and brake_now is not None and brake_now != brake_prev:
@@ -185,13 +176,11 @@ class FlightStateTracker:
                     "ground_velocity": data.get("ground_velocity"),
                 })
 
-            # ---- Distance accumulation ----
             lat, lon = data.get("latitude"), data.get("longitude")
             plat, plon = prev.get("latitude"), prev.get("longitude")
             if lat is not None and plat is not None:
                 self.distance_nm += _haversine_nm(plat, plon, lat, lon)
 
-            # ---- Block end ----
             if not engine_running and self.was_airborne:
                 self.block_end_time = time.time()
                 self.block_hours = (self.block_end_time - self.block_start_time) / 3600
@@ -221,12 +210,6 @@ class FlightStateTracker:
                 self.state = "IDLE"
 
             elif not engine_running and not self.was_airborne:
-                # Engine started, then stopped again without ever getting
-                # airborne - a ground abort / test start, not a real flight.
-                # This must NOT fire a block_end (nothing to log/save), but
-                # the state machine still has to release back to IDLE, or
-                # the app gets stuck permanently in BLOCK state with no way
-                # out (e.g. a UI's Stop button staying disabled forever).
                 events.append({"type": "block_aborted", "time": time.time()})
                 self.state = "IDLE"
                 self.block_start_time = None

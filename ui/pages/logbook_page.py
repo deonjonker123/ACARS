@@ -23,7 +23,7 @@ from PySide6.QtGui import QColor
 from ui.theme import PALETTE, font, font_label
 
 COLUMNS = [
-    "DATE", "DEP", "ARR", "AIRCRAFT", "REG",
+    "DATE", "FLIGHT", "DEP", "ARR", "AIRCRAFT", "REG",
     "PAX", "CARGO", "DIST (NM)", "DURATION", "LANDING RATE", ""
 ]
 
@@ -52,20 +52,11 @@ def _format_duration(hours):
 def _format_date(iso_string):
     if not iso_string:
         return "—"
-    # logged_at comes from SQLite as 'YYYY-MM-DD HH:MM:SS' - just take the date part
     return iso_string.split(" ")[0].split("T")[0]
 
-
-# Real-world landing-rate conventions (pilot training / flight-data
-# monitoring): under ~200 fpm at touchdown is a smooth landing, 200-600 fpm
-# is firm but normal, and beyond ~600 fpm is a hard landing (the point real
-# aircraft typically require a maintenance inspection). Classified by
-# magnitude, not raw sign - a positive-sign touchdown reading (a sampling
-# artifact at 1Hz polling, not a physically real climbing touchdown) still
-# needs a sane color based on how hard the actual contact was.
 def _landing_rate_color(landing_vs):
     if landing_vs is None:
-        return None  # no data - stay uncolored, not judged as bad
+        return None
     magnitude = abs(landing_vs)
     if magnitude <= 200:
         return PALETTE["positive"]
@@ -96,7 +87,7 @@ class LogbookPage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)  # AIRCRAFT column stretches
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)  # AIRCRAFT column stretches
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)
 
@@ -104,10 +95,6 @@ class LogbookPage(QWidget):
 
     def refresh(self):
         """Reloads the table from the database. Call after any flight logs."""
-        # NOTE: pulling a large limit here to compute accurate all-time
-        # summary totals, not just the most recent page of flights. Fine
-        # at current scale; if the logbook grows very large, this should
-        # become a dedicated aggregate query in db.py instead.
         flights = self.db.list_flights(limit=10000)
 
         total_nm = sum(f["distance_nm"] or 0 for f in flights)
@@ -121,10 +108,11 @@ class LogbookPage(QWidget):
 
         for row, f in enumerate(flights):
             self.table.setItem(row, 0, QTableWidgetItem(_format_date(f["logged_at"])))
-            self.table.setItem(row, 1, QTableWidgetItem(f["departure_airport"] or "—"))
-            self.table.setItem(row, 2, QTableWidgetItem(f["arrival_airport"] or "—"))
-            self.table.setItem(row, 3, QTableWidgetItem(f["aircraft_designation"] or "—"))
-            self.table.setItem(row, 4, QTableWidgetItem(f["aircraft_registration"] or "—"))
+            self.table.setItem(row, 1, QTableWidgetItem(f["flight_number"] or "—"))
+            self.table.setItem(row, 2, QTableWidgetItem(f["departure_airport"] or "—"))
+            self.table.setItem(row, 3, QTableWidgetItem(f["arrival_airport"] or "—"))
+            self.table.setItem(row, 4, QTableWidgetItem(f["aircraft_designation"] or "—"))
+            self.table.setItem(row, 5, QTableWidgetItem(f["aircraft_registration"] or "—"))
             self.table.setItem(row, 6, QTableWidgetItem(str(f["pax_count"]) if f["pax_count"] is not None else "—"))
             self.table.setItem(row, 7, QTableWidgetItem(f"{f['cargo_kg']:.0f}" if f["cargo_kg"] else "—"))
 
@@ -140,12 +128,12 @@ class LogbookPage(QWidget):
                 landing_sort = landing_vs
             else:
                 landing_text = "—"
-                landing_sort = 999999  # missing data sorts to one consistent end, not scattered
+                landing_sort = 999999
             landing_item = _NumericItem(landing_text, landing_sort)
             color = _landing_rate_color(landing_vs)
             if color:
                 landing_item.setForeground(QColor(color))
-            self.table.setItem(row, 9, landing_item)
+            self.table.setItem(row, 10, landing_item)
 
             view_btn = QPushButton("View")
             view_btn.setObjectName("TableActionButton")
@@ -153,7 +141,7 @@ class LogbookPage(QWidget):
             view_btn.clicked.connect(
                 lambda checked=False, fid=f["id"]: self._show_detail(fid)
             )
-            self.table.setCellWidget(row, 10, view_btn)
+            self.table.setCellWidget(row, 11, view_btn)
 
         self.table.setSortingEnabled(True)
 

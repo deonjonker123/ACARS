@@ -2,14 +2,23 @@
 ui/pages/home_page.py
 
 Home page, 3 zones per the wireframe:
-  Zone 1 (top, full width):  New flight from SimBrief - PLACEHOLDER,
-                              SimBrief integration isn't built yet.
+  Zone 1 (top, full width):  Flight plan - fetch the latest SimBrief OFP,
+                              pick a fleet airframe, Dispatch / Cancel.
   Zone 2 (bottom left):      Future map with historical flights - PLACEHOLDER,
                               this is explicitly backlogged (last item per
                               earlier conversation).
   Zone 3 (bottom right):     Live telemetry - REAL, wired to
-                              FlightSessionController the same way
-                              ui/live_monitor.py is, via its own QTimer.
+                              FlightSessionController via its own QTimer.
+
+A flight only exists because of a dispatched plan (see core/flight_session.py):
+Start Flight is only enabled once dispatched, block time only starts at the
+planned origin, and landing anywhere but the destination/alternate rejects
+the flight. When a dispatch ends (saved, rejected or cancelled) monitoring
+stops and the page is ready for the next plan.
+
+The plan summary is the shared ui/widgets/plan_summary.py block, and every
+dispatch change is passed on to the Flight Plan page (set_dispatch), which
+only ever shows the currently dispatched plan.
 
 IMPORTANT: this page owns its own FlightSessionController instance and
 polls the sim independently. Do not run ui/live_monitor.py at the same
@@ -20,23 +29,47 @@ detect the same completed flight and log it to the database twice.
 import math
 import sys
 import os
+from datetime import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
+    QMessageBox, QComboBox
 )
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QThread, Signal
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, font, font_heading, font_label
-from core.flight_session import FlightSessionController
+from ui.widgets.plan_summary import PlanSummary, fmt_hm
+from core.flight_session import FlightSessionController, FlightSaveBlocked, FlightDispatchError
+from core.simbrief import fetch_latest_ofp, SimBriefError
+from core.pilot import PilotProgress
 
 POLL_INTERVAL_MS = 1000
+MIN_GS_FOR_ETA_KT = 30
+
+_INPUT_STYLE = f"""
+    QComboBox {{
+        background-color: {PALETTE['bg_input']};
+        color: {PALETTE['text_primary']};
+        border: 1px solid {PALETTE['border']};
+        border-radius: 4px;
+        padding: 6px 8px;
+    }}
+    QComboBox:focus {{ border-color: {PALETTE['accent_dim']}; }}
+    QComboBox QAbstractItemView {{
+        background-color: {PALETTE['bg_input']};
+        color: {PALETTE['text_primary']};
+        selection-background-color: {PALETTE['accent_bg']};
+        selection-color: {PALETTE['accent']};
+    }}
+"""
 
 
 def _haversine_nm(lat1, lon1, lat2, lon2):
     """Straight-line distance in nautical miles, used for 'Distance From'
-    (dep point -> current position). Distance Flown is different - that's
-    the cumulative path length tracked by FlightStateTracker."""
+    (dep point -> current position) and 'Distance To' (current position ->
+    destination). Distance Flown is different - that's the cumulative path
+    length tracked by FlightStateTracker."""
     if None in (lat1, lon1, lat2, lon2):
         return None
     r_nm = 3440.065
@@ -55,6 +88,12 @@ def _fmt(value, unit="", decimals=1):
     return f"{value}{unit}"
 
 
+def _type_key(text):
+    """'TBM 850' / 'tbm-850' / 'TBM850' all compare equal - used to pre-select
+    a fleet airframe matching the OFP's aircraft type."""
+    return "".join(ch for ch in (text or "").upper() if ch.isalnum())
+
+
 def _card(title_text):
     """A titled card container matching the app's #Card styling."""
     card = QWidget()
@@ -71,20 +110,39 @@ def _card(title_text):
     return card, layout
 
 
+class _FetchWorker(QThread):
+    """Fetches the SimBrief OFP off the UI thread, so the window doesn't
+    freeze while waiting on the network. Emits (plan, "") or (None, error)."""
+    finished_fetch = Signal(object, str)
+
+    def __init__(self, pilot_id):
+        super().__init__()
+        self.pilot_id = pilot_id
+
+    def run(self):
+        try:
+            self.finished_fetch.emit(fetch_latest_ofp(self.pilot_id), "")
+        except SimBriefError as e:
+            self.finished_fetch.emit(None, str(e))
+        except Exception as e:
+            self.finished_fetch.emit(None, f"Unexpected error fetching the plan: {e}")
+
+
 class HomePage(QWidget):
     def __init__(self, db):
         super().__init__()
         self.db = db
         self.controller = FlightSessionController(db=db)
+        self.plan = None
+        self._fetch_worker = None
+        self._fetching = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(32, 24, 32, 24)
         outer.setSpacing(16)
 
-        # ---- Zone 1: SimBrief dispatch (placeholder) ----
         outer.addWidget(self._build_zone1(), stretch=0)
 
-        # ---- Zone 2 + Zone 3: map (wide, left) + telemetry (narrow, right) ----
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(16)
         bottom_row.addWidget(self._build_zone2(), stretch=2)
@@ -93,33 +151,175 @@ class HomePage(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
-        # Not started here anymore - polling only begins when the pilot
-        # clicks "Start Flight" in Zone 3, rather than running constantly
-        # whether or not a flight is actually happening.
 
-    # ---------------- Zone 1: SimBrief (placeholder) ----------------
+        self._refresh_dispatch_ui()
 
     def _build_zone1(self):
-        card, layout = _card("NEW FLIGHT")
-        card.setFixedHeight(140)
+        card, layout = _card("FLIGHT PLAN")
+        card.setStyleSheet(_INPUT_STYLE)
 
-        row = QHBoxLayout()
-        msg = QLabel("SimBrief integration not built yet - dispatch a flight here once it's wired in.")
-        msg.setFont(font(11))
-        msg.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        msg.setWordWrap(True)
-        row.addWidget(msg, stretch=1)
+        fetch_row = QHBoxLayout()
+        self.fetch_button = QPushButton("Fetch from SimBrief")
+        self.fetch_button.setCursor(Qt.PointingHandCursor)
+        self.fetch_button.clicked.connect(self._fetch_plan)
+        fetch_row.addWidget(self.fetch_button)
+        self.fetch_status = QLabel("No flight plan loaded.")
+        self.fetch_status.setFont(font(10))
+        self.fetch_status.setWordWrap(True)
+        self.fetch_status.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        fetch_row.addWidget(self.fetch_status, stretch=1)
+        layout.addLayout(fetch_row)
 
-        fetch_btn = QPushButton("Fetch from SimBrief")
-        fetch_btn.setEnabled(False)
-        fetch_btn.setToolTip("SimBrief integration coming soon")
-        fetch_btn.setCursor(Qt.ArrowCursor)
-        row.addWidget(fetch_btn)
+        self.plan_summary = PlanSummary(show_badge=False)
+        layout.addWidget(self.plan_summary)
 
-        layout.addLayout(row)
+        dispatch_row = QHBoxLayout()
+        aircraft_label = QLabel("AIRCRAFT")
+        aircraft_label.setFont(font_label(9))
+        aircraft_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        dispatch_row.addWidget(aircraft_label)
+
+        self.aircraft_combo = QComboBox()
+        self.aircraft_combo.setMinimumWidth(240)
+        dispatch_row.addWidget(self.aircraft_combo)
+
+        self.dispatch_button = QPushButton("Dispatch")
+        self.dispatch_button.setCursor(Qt.PointingHandCursor)
+        self.dispatch_button.clicked.connect(self._dispatch)
+        dispatch_row.addWidget(self.dispatch_button)
+
+        self.cancel_button = QPushButton("Cancel Flight")
+        self.cancel_button.setCursor(Qt.PointingHandCursor)
+        self.cancel_button.clicked.connect(self._cancel_flight)
+        dispatch_row.addWidget(self.cancel_button)
+
+        self.dispatch_status = QLabel("")
+        self.dispatch_status.setFont(font_label(9))
+        dispatch_row.addWidget(self.dispatch_status, stretch=1)
+        layout.addLayout(dispatch_row)
+
         return card
 
-    # ---------------- Zone 2: Map (placeholder, backlogged) ----------------
+    def _fetch_plan(self):
+        pilot = self.db.get_pilot() or {}
+        self.fetch_button.setEnabled(False)
+        self._set_fetch_status("Fetching latest OFP from SimBrief...", PALETTE["text_secondary"])
+
+        self._fetching = True
+        self._fetch_worker = _FetchWorker(pilot.get("simbrief_id"))
+        self._fetch_worker.finished_fetch.connect(self._on_plan_fetched)
+        self._fetch_worker.start()
+
+    def _on_plan_fetched(self, plan, error):
+        self._fetching = False
+        if error:
+            self._set_fetch_status(error, PALETTE["negative"])
+        else:
+            self.plan = plan
+            fetched = datetime.now().strftime("%H:%M")
+            self._set_fetch_status(f"Latest OFP fetched at {fetched}.", PALETTE["text_secondary"])
+            self._populate_aircraft(plan)
+        self._refresh_dispatch_ui()
+
+    def _set_fetch_status(self, text, color):
+        self.fetch_status.setText(text)
+        self.fetch_status.setStyleSheet(f"color: {color};")
+
+    def _populate_aircraft(self, plan=None):
+        """Fills the airframe picker with the active fleet the pilot is rated
+        for, pre-selecting one whose name matches the OFP's aircraft type."""
+        current = self.aircraft_combo.currentData()
+        pilot = self.db.get_pilot() or {}
+        progress = PilotProgress(pilot.get("total_hours_flown") or 0)
+        rank_by_id = {r["id"]: r for r in progress.ranks}
+
+        rated = []
+        for a in self.db.list_aircraft():
+            rank = rank_by_id.get(a.get("unlock_rank") or "student_pilot", progress.ranks[0])
+            if progress.total_hours >= rank["min_hours"]:
+                rated.append(a)
+
+        self.aircraft_combo.clear()
+        self.aircraft_combo.addItem("Select aircraft...", None)
+        for a in rated:
+            self.aircraft_combo.addItem(f"{a['designation']}  —  {a['registration']}", a["registration"])
+
+        target = None
+        if plan is not None:
+            wanted = _type_key(plan.get("aircraft_type"))
+            match = next((a for a in rated if _type_key(a["designation"]) == wanted), None)
+            if match is not None:
+                target = match["registration"]
+        if target is None:
+            target = current
+        index = self.aircraft_combo.findData(target) if target else -1
+        self.aircraft_combo.setCurrentIndex(max(index, 0))
+
+    def _dispatch(self):
+        if self.plan is None:
+            return
+        try:
+            self.controller.dispatch(self.plan, self.aircraft_combo.currentData())
+        except FlightDispatchError as e:
+            QMessageBox.warning(self, "Not Dispatched", str(e))
+            return
+        self._refresh_dispatch_ui()
+
+    def _cancel_flight(self):
+        in_progress = (self.controller.tracker.state == "BLOCK"
+                       or self.controller.pending_flight_event is not None)
+        if in_progress:
+            answer = QMessageBox.question(
+                self, "Cancel Flight",
+                "Cancel this flight? Tracking stops and nothing will be logged.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+        self.controller.cancel_dispatch()
+        self._end_of_dispatch()
+
+    def _end_of_dispatch(self):
+        """A dispatch finished (saved, rejected or cancelled): stop
+        monitoring and reset the page for the next flight plan."""
+        self._stop_monitoring()
+        self.plan = None
+        self._set_fetch_status("No flight plan loaded.", PALETTE["text_secondary"])
+        self.save_button.setVisible(False)
+        self._refresh_dispatch_ui()
+
+    def _refresh_dispatch_ui(self):
+        dispatch = self.controller.dispatch_info
+        dispatched = dispatch is not None
+        monitoring = self.timer.isActive()
+
+        self.plan_summary.set_plan(self.plan, dispatch)
+        self.fetch_button.setEnabled(not dispatched and not self._fetching)
+        self.aircraft_combo.setEnabled(self.plan is not None and not dispatched)
+        self.dispatch_button.setEnabled(self.plan is not None and not dispatched)
+        self.dispatch_button.setVisible(not dispatched)
+        self.cancel_button.setVisible(dispatched)
+
+        if dispatched:
+            self.dispatch_status.setText(
+                f"DISPATCHED  ·  {dispatch['designation']} {dispatch['registration']}"
+            )
+            self.dispatch_status.setStyleSheet(f"color: {PALETTE['positive']};")
+        else:
+            self.dispatch_status.setText("")
+
+        self.monitor_button.setEnabled(monitoring or dispatched)
+
+        main_window = self.window()
+        flight_plan_page = main_window.get_page("flight_plan") if hasattr(main_window, "get_page") else None
+        if flight_plan_page is not None and hasattr(flight_plan_page, "set_dispatch"):
+            flight_plan_page.set_dispatch(dispatch)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Fleet/rank may have changed on other pages since the last fetch
+        if self.plan is not None and self.controller.dispatch_info is None:
+            self._populate_aircraft()
 
     def _build_zone2(self):
         card, layout = _card("FLIGHT MAP")
@@ -132,8 +332,6 @@ class HomePage(QWidget):
         layout.addWidget(msg, stretch=1, alignment=Qt.AlignCenter)
 
         return card
-
-    # ---------------- Zone 3: Live telemetry (real) ----------------
 
     def _build_zone3(self):
         card, layout = _card("LIVE TELEMETRY")
@@ -153,6 +351,11 @@ class HomePage(QWidget):
         self.status_label.setFont(font(10))
         self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         layout.addWidget(self.status_label)
+
+        self.arming_label = QLabel("")
+        self.arming_label.setFont(font(9))
+        self.arming_label.setWordWrap(True)
+        layout.addWidget(self.arming_label)
 
         self.state_label = QLabel("State: —")
         self.state_label.setFont(font_label(9))
@@ -247,60 +450,96 @@ class HomePage(QWidget):
         line.setFixedHeight(1)
         return line
 
-    # ---------------- Polling ----------------
-
     def _toggle_monitoring(self):
         if not self.timer.isActive():
+            if self.controller.dispatch_info is None:
+                return
             self.timer.start(POLL_INTERVAL_MS)
             self.monitor_button.setText("Stop Monitoring")
             self.status_label.setText("Connecting...")
             self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         else:
-            self.timer.stop()
-            self.controller.disconnect()
-            self.monitor_button.setText("Start Flight")
-            self.status_label.setText("Not monitoring")
-            self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-            self.state_label.setText("State: —")
+            self._stop_monitoring()
+        self._refresh_dispatch_ui()
+
+    def _stop_monitoring(self):
+        self.timer.stop()
+        self.controller.disconnect()
+        self.monitor_button.setText("Start Flight")
+        self.status_label.setText("Not monitoring")
+        self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        self.arming_label.setText("")
+        self.state_label.setText("State: —")
+
+    def _set_arming(self, text):
+        if not text:
+            self.arming_label.setText("")
+            return
+        if text.startswith("At "):
+            color = PALETTE["positive"]
+        elif text.startswith("Flight complete"):
+            color = PALETTE["accent"]
+        else:
+            color = PALETTE["warning"]
+        self.arming_label.setText(text)
+        self.arming_label.setStyleSheet(f"color: {color};")
 
     def _tick(self):
         result = self.controller.tick()
         self.sim_label.setText(f"Sim: {result.get('sim_name', 'Unknown')}")
 
-        # Safety: don't allow stopping mid-flight - if monitoring stopped
-        # before block_end fires, that flight would never get logged.
         self.monitor_button.setEnabled(result["state"] != "BLOCK")
+
+        rejection = next((e for e in result["events"] if e["type"] == "flight_rejected"), None)
+        if rejection is not None:
+            self._end_of_dispatch()
+            main_window = self.window()
+            if hasattr(main_window, "update_pilot_data"):
+                main_window.update_pilot_data(self.db.get_pilot())
+            QMessageBox.critical(self, "Flight Rejected", rejection["reason"])
+            return
 
         if not result["connected"]:
             self.status_label.setText("Not connected")
             self.status_label.setStyleSheet(f"color: {PALETTE['negative']};")
             self.state_label.setText("State: —")
+            self._set_arming("")
             return
 
         if not result["has_data"]:
             self.status_label.setText("Waiting for active flight...")
             self.status_label.setStyleSheet(f"color: {PALETTE['warning']};")
             self.state_label.setText("State: —")
+            self._set_arming("")
             return
 
         self.status_label.setText("Receiving live data")
         self.status_label.setStyleSheet(f"color: {PALETTE['positive']};")
         self.state_label.setText(f"State: {result['state']}")
+        self._set_arming(result.get("arming"))
 
         data = result["data"]
         live = result["live"]
+        cur_lat, cur_lon = data.get("latitude"), data.get("longitude")
 
         dep_lat = getattr(self.controller.tracker, "dep_lat", None)
         dep_lon = getattr(self.controller.tracker, "dep_lon", None)
-        cur_lat, cur_lon = data.get("latitude"), data.get("longitude")
         distance_from = _haversine_nm(dep_lat, dep_lon, cur_lat, cur_lon)
-
         self.value_labels["distance_from"].setText(_fmt(distance_from, " nm", 1))
-        # Distance To and Remaining Time need a known destination, which
-        # doesn't exist yet (no dispatch/flight-plan system built) - shown
-        # as unavailable rather than guessed.
-        self.value_labels["distance_to"].setText("— (no flight plan)")
-        self.value_labels["remaining_time"].setText("— (no flight plan)")
+
+        dispatch = result.get("dispatch")
+        distance_to = None
+        if dispatch is not None:
+            dest = dispatch["plan"]["destination"]
+            distance_to = _haversine_nm(cur_lat, cur_lon, dest["lat"], dest["lon"])
+        self.value_labels["distance_to"].setText(_fmt(distance_to, " nm", 1))
+
+        ground_speed = data.get("ground_velocity")
+        if distance_to is not None and ground_speed and ground_speed >= MIN_GS_FOR_ETA_KT:
+            self.value_labels["remaining_time"].setText(fmt_hm(distance_to / ground_speed))
+        else:
+            self.value_labels["remaining_time"].setText("—")
+
         self.value_labels["distance_flown"].setText(_fmt(live.get("distance_nm"), " nm", 1))
 
         elapsed = live.get("elapsed_hours")
@@ -309,11 +548,10 @@ class HomePage(QWidget):
         self.value_labels["altitude"].setText(_fmt(data.get("altitude"), " ft", 0))
         self.value_labels["heading"].setText(_fmt(data.get("heading_true"), "°", 0))
         self.value_labels["airspeed_indicated"].setText(_fmt(data.get("airspeed_indicated"), " kt", 0))
-        self.value_labels["ground_speed"].setText(_fmt(data.get("ground_velocity"), " kt", 0))
+        self.value_labels["ground_speed"].setText(_fmt(ground_speed, " kt", 0))
         self.value_labels["fuel_burned"].setText(_fmt(live.get("fuel_burned_so_far"), " lbs", 0))
         self.value_labels["fuel_remaining"].setText(_fmt(data.get("fuel_total_weight"), " lbs", 0))
 
-        # Raw sim state panel - not stored, just a live glance
         parking_brake = data.get("parking_brake")
         self.raw_value_labels["parking_brake"].setText(
             "SET" if parking_brake else "RELEASED" if parking_brake is not None else "—"
@@ -321,26 +559,30 @@ class HomePage(QWidget):
         self.raw_value_labels["flaps_handle_index"].setText(_fmt(data.get("flaps_handle_index")))
         self.raw_value_labels["gear_handle_position"].setText(_fmt(data.get("gear_handle_position")))
 
-        # A flight completed but hasn't been saved yet - show the Save
-        # button rather than writing to the DB automatically.
         self.save_button.setVisible(result["pending_flight"])
 
     def _save_pending_flight(self):
-        flight_id = self.controller.record_pending_flight()
+        try:
+            flight_id = self.controller.record_pending_flight()
+        except FlightSaveBlocked as e:
+            QMessageBox.warning(self, "Flight Not Saved", str(e))
+            return
         if flight_id is None:
-            return  # nothing was actually pending - shouldn't normally happen
+            return
 
-        self.save_button.setVisible(False)
+        self._end_of_dispatch()
 
         main_window = self.window()
         if hasattr(main_window, "update_pilot_data"):
             main_window.update_pilot_data(self.db.get_pilot())
 
-        # Tell the Logbook page to reload - it only loads once at startup
-        # otherwise, and wouldn't show this new flight until the app restarts.
         logbook_page = main_window.get_page("logbook") if hasattr(main_window, "get_page") else None
         if logbook_page is not None and hasattr(logbook_page, "refresh"):
             logbook_page.refresh()
+
+        aircraft_page = main_window.get_page("aircraft") if hasattr(main_window, "get_page") else None
+        if aircraft_page is not None and hasattr(aircraft_page, "refresh"):
+            aircraft_page.refresh()
 
 
 if __name__ == "__main__":

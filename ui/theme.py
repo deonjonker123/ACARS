@@ -4,21 +4,6 @@ ui/theme.py
 Central place for colors, fonts, and the QSS stylesheet. Every other UI
 file imports from here rather than hardcoding hex values.
 
-Roboto is NOT a default system font on Windows/Mac (it ships with
-Android/ChromeOS, and is preinstalled on some Linux distros), so it won't
-just work by naming it in a QFont - Qt will silently substitute something
-else instead, which you won't notice until you compare closely. To get
-real Roboto (and its actual weight files - Light/Regular/Medium/Bold are
-separate font files, not one font Qt can "make bold"), download the family
-from Google Fonts and drop the .ttf files here:
-
-    assets/fonts/Roboto-Light.ttf
-    assets/fonts/Roboto-Regular.ttf
-    assets/fonts/Roboto-Medium.ttf
-    assets/fonts/Roboto-Bold.ttf
-
-    https://fonts.google.com/specimen/Roboto
-
 load_fonts() (called once at app startup) registers whatever it finds in
 that folder. If the folder's empty or missing, the app still runs - it
 just falls back to Qt's default UI font and prints a note, rather than
@@ -107,16 +92,11 @@ def _family():
     """Returns 'Roboto' if it loaded, otherwise the system fallback."""
     return _FALLBACK_FAMILY if _FALLBACK_FAMILY else FONT_FAMILY
 
-
-# ---------------- Palette ----------------
-# Near-black navy background, brass/gold accent, muted blue-gray secondary
-# text - matching the reference screenshots.
-
 PALETTE = {
-    "bg":               "#0e0e0e",   # main window background
+    "bg":               "#0e0e0e",
     "bg_sidebar":       "#1a1a1a",
-    "bg_panel":         "#1a1a1a",   # cards / table rows
-    "bg_panel_alt":     "#1a1a1a",   # hover / alt row
+    "bg_panel":         "#1a1a1a",
+    "bg_panel_alt":     "#1a1a1a",
     "bg_input":         "#272727",
 
     "border":           "#3e3d40",
@@ -126,18 +106,15 @@ PALETTE = {
     "text_secondary":   "#6c7381",
     "text_muted":       "#606161",
 
-    "accent":           "#e4a125",   # gold/brass
+    "accent":           "#e4a125",
     "accent_dim":       "#614b29",
-    "accent_bg":        "#1c1812",   # gold-tinted dark background (selected nav, etc.)
+    "accent_bg":        "#1c1812",
 
-    "positive":         "#2d783d",   # greens for "good", "excellent"
+    "positive":         "#2d783d",
     "warning":          "#f37321",
     "negative":         "#ee2625",
 }
 
-# ---------------- Fonts ----------------
-# Named weights map to the actual Roboto weight files once loaded. If a
-# specific weight file is missing, Qt substitutes the closest one it has.
 
 WEIGHT_LIGHT = QFont.Light
 WEIGHT_REGULAR = QFont.Normal
@@ -156,8 +133,6 @@ def garamond(size=10, weight=QFont.Normal):
     f.setWeight(weight)
     return f
 
-
-# Convenience presets for the spots we already know we'll need repeatedly.
 def font_heading(size=26):
     return font(size, WEIGHT_LIGHT)
 
@@ -173,24 +148,14 @@ def font_stat_value(size=22):
 def font_label(size=9):
     return font(size, WEIGHT_MEDIUM)
 
-
-# ---------------- Logo ----------------
-# Drop a logo file here and main_window.py will display it in the sidebar.
-# Supports common image formats (.png recommended, transparent background).
-# If no file is present, the sidebar falls back to plain text - nothing
-# breaks, it just won't look as sharp until you add one.
-
 LOGO_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "assets", "logo.png"
 )
 
-
 def logo_exists():
     return os.path.exists(LOGO_PATH)
 
-
-# ---------------- Stylesheet ----------------
 
 def build_stylesheet():
     p = PALETTE
@@ -406,6 +371,14 @@ def build_stylesheet():
     
     QPushButton#TableActionButton:pressed {{
         background-color: {p['accent_dim']};
+        color: {p['text_primary']};
+    }}
+    
+    /* ---- Popups (alerts / confirmations) ---- */
+    QMessageBox {{
+        background-color: {p['bg_panel']};
+    }}
+    QMessageBox QLabel {{
         color: {p['text_primary']};
     }}
     """

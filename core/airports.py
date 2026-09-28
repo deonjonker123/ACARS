@@ -31,11 +31,9 @@ _DEFAULT_CSV_PATH = os.path.join(
     "data", "airports.csv"
 )
 
-# Airport "type" values in the OurAirports dataset we consider real,
-# landable airports. Excludes heliports, seaplane bases, closed, balloonports.
 _VALID_TYPES = {"large_airport", "medium_airport", "small_airport"}
 
-_GRID_SIZE_DEG = 1.0  # bucket size for the spatial index
+_GRID_SIZE_DEG = 1.0
 
 
 def _haversine_nm(lat1, lon1, lat2, lon2):
@@ -54,8 +52,8 @@ def _grid_key(lat, lon):
 class AirportLookup:
     def __init__(self, csv_path=_DEFAULT_CSV_PATH):
         self.csv_path = csv_path
-        self._airports = []          # flat list of airport dicts
-        self._grid = {}              # (grid_x, grid_y) -> list of indices into _airports
+        self._airports = []
+        self._grid = {}
         self._loaded = False
 
     def load(self):
@@ -120,14 +118,14 @@ class AirportLookup:
         best_dist = None
 
         ring = 0
-        max_ring = int(max_radius_nm / (_GRID_SIZE_DEG * 60)) + 2  # ~60nm per degree, generous margin
+        max_ring = int(max_radius_nm / (_GRID_SIZE_DEG * 60)) + 2
 
         while ring <= max_ring:
             found_any_cell = False
             for dx in range(-ring, ring + 1):
                 for dy in range(-ring, ring + 1):
                     if max(abs(dx), abs(dy)) != ring:
-                        continue  # only the new outer ring, inner already checked
+                        continue
                     cell = (gx + dx, gy + dy)
                     if cell not in self._grid:
                         continue
@@ -138,8 +136,6 @@ class AirportLookup:
                         if d <= max_radius_nm and (best_dist is None or d < best_dist):
                             best, best_dist = a, d
 
-            # Once we have a candidate, one extra ring guards against a
-            # closer airport just across a cell boundary, then stop.
             if best is not None and ring > 0:
                 break
             ring += 1
