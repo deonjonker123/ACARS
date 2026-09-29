@@ -46,6 +46,7 @@ STALE_S = 3.0
 FAST_HZ = 20
 NORMAL_HZ = 5
 TEXT_HZ = 1
+TOUCHDOWN_G_WINDOW_S = 0.5
 
 M_TO_FT = 3.28084
 MS_TO_KT = 1.943844
@@ -60,7 +61,9 @@ NUMERIC = {
     "alt_above_ground":     ("sim/flightmodel/position/y_agl", NORMAL_HZ, M_TO_FT),
     "airspeed_indicated":   ("sim/flightmodel/position/indicated_airspeed", NORMAL_HZ, None),
     "ground_velocity":      ("sim/flightmodel/position/groundspeed", NORMAL_HZ, MS_TO_KT),
-    "g_force":              ("sim/flightmodel/forces/g_nrml", NORMAL_HZ, None),
+    "g_force":              ("sim/flightmodel/forces/g_nrml", FAST_HZ, None),
+    "bank":                 ("sim/flightmodel/position/phi", FAST_HZ, None),
+    "pitch":                ("sim/flightmodel/position/theta", FAST_HZ, None),
     "heading_true":         ("sim/flightmodel/position/mag_psi", NORMAL_HZ, None),
     "latitude":             ("sim/flightmodel/position/latitude", NORMAL_HZ, None),
     "longitude":            ("sim/flightmodel/position/longitude", NORMAL_HZ, None),
@@ -136,6 +139,8 @@ class XPlaneConnector:
         self._chars = {key: [0.0] * length for key, (_, length) in TEXT.items()}
         self._last_packet = None
         self._touchdowns = []
+        self._open = None
+        self._open_since = None
         self._was_on_ground = None
         self._last_airborne_vs = None
 
@@ -190,6 +195,8 @@ class XPlaneConnector:
             raw[key] = value * factor if value is not None and factor else value
 
         raw["on_ground"] = 1.0 if raw["on_ground"] >= 0.5 else 0.0
+        if raw["bank"] is not None:
+            raw["bank"] = abs(raw["bank"])
         raw["engine_running"] = bool(raw["eng1_combustion"]) or bool(raw.get("eng2_combustion"))
         if raw["gear_handle_position"] is not None:
             raw["gear_handle_position"] = int(round(raw["gear_handle_position"]))
@@ -252,6 +259,9 @@ class XPlaneConnector:
 
     def _check_touchdown(self):
         """Called with the lock held after each packet."""
+        if self._open is not None:
+            self._track_touchdown_g()
+
         on_ground = self._values.get("on_ground")
         vs = self._values.get("vertical_speed")
         if on_ground is None:
@@ -262,8 +272,38 @@ class XPlaneConnector:
                 self._last_airborne_vs = vs
         elif self._was_on_ground is False and self._last_airborne_vs is not None:
             readings = [self._last_airborne_vs] + ([vs] if vs is not None else [])
-            self._touchdowns.append(min(readings))
+            self._open_touchdown(min(readings))
         self._was_on_ground = on_ground
+
+    def _open_touchdown(self, vs):
+        """A touchdown just happened: note the moment's attitude and speeds,
+        then keep watching G for TOUCHDOWN_G_WINDOW_S before handing it over."""
+        if self._open is not None:
+            self._close_touchdown()
+        values = self._values
+        bank = values.get("bank")
+        gs = values.get("ground_velocity")
+        self._open = {
+            "vs": vs,
+            "g": values.get("g_force"),
+            "bank": abs(bank) if bank is not None else None,
+            "pitch": values.get("pitch"),
+            "ias": values.get("airspeed_indicated"),
+            "gs": gs * MS_TO_KT if gs is not None else None,
+        }
+        self._open_since = time.monotonic()
+
+    def _track_touchdown_g(self):
+        g = self._values.get("g_force")
+        if g is not None and (self._open["g"] is None or g > self._open["g"]):
+            self._open["g"] = g
+        if time.monotonic() - self._open_since >= TOUCHDOWN_G_WINDOW_S:
+            self._close_touchdown()
+
+    def _close_touchdown(self):
+        self._touchdowns.append(self._open)
+        self._open = None
+        self._open_since = None
 
 
 if __name__ == "__main__":

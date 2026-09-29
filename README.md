@@ -1,6 +1,6 @@
 # Tailwind ACARS
 
-A flight-tracking and logbook app for flight simulation. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Tailwind records the whole thing automatically: block times, route, landing rate and flight hours. It also tracks your rank.
+A flight-tracking and logbook app for flight simulation. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Tailwind records the whole thing automatically: block times, route, altitude and speed profile, landing rate and flight hours. Every landing gets a grade, every flight gets a full debrief, and your profile builds up career stats as you go. It also tracks your rank.
 
 Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
@@ -25,8 +25,12 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 1. **Settings.** Enter your pilot name and **SimBrief Pilot ID** (SimBrief → Account Settings → Pilot ID). If you fly online, also add your VATSIM or IVAO ID. A home airport is optional.
 2. **Plan** your flight on [SimBrief](https://www.simbrief.com) as usual.
 3. **Dispatch.** Tailwind loads your latest SimBrief plan. Pick an aircraft from the fleet and your network (Offline, VATSIM or IVAO), then dispatch.
-4. **Fly.** Start the sim. Tailwind finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**.
-5. **Land and park.** When the flight ends, it's logged in your logbook.
+4. **Fly.** Start the sim. Tailwind finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
+5. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
+   - **Submit Flight:** Tailwind checks the flight against the rules below and tells you whether it was **accepted** or **rejected**, with your landing grade. Press **View Debrief** to see how it went.
+   - **Discard Flight:** throws the flight away. Nothing is logged, and nothing counts for or against you.
+
+Changed your mind mid-flight? **Cancel Flight** stops tracking and clears the plan at any time before the flight is complete. Nothing is logged and there's no penalty.
 
 ### Simulators
 
@@ -39,10 +43,31 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
 ## The rules
 
-- **Hard landings:** a touchdown harder than **-800 fpm** rejects the flight. It stays in the logbook as rejected, its hours don't count, and your rejection count goes up.
-- **Landing rate** is sampled 20 times per second around touchdown, so what you see is what you actually hit.
+A flight is judged when you press **Submit**. It's **rejected** if:
+- you parked anywhere other than the planned **destination or alternate**, or
+- your hardest touchdown was harder than **-800 fpm**.
+
+A rejected flight stays in your logbook, marked **REJECTED** with the reason and its full debrief, so you can see what went wrong. Its hours don't count toward your rank, it's left out of your averages and stats, and your rejection count goes up.
+
+Also:
+- **Landing rate** is sampled 20 times per second around touchdown, so what you see is what you actually hit. If you bounce, the hardest touchdown counts.
 - **Online flights:** if you dispatch on VATSIM or IVAO, you must be connected to that network for at least half of the flight for it to count as online. If the network's data feed can't be reached, or your internet drops, that time isn't held against you. Your hours are always logged either way.
-- **Crashes:** if the app, simulator, or the PC crashes mid-flight, Tailwind offers to **resume** the flight on next start.
+- **Crashes:** if the app, simulator or PC crashes mid-flight, Tailwind offers to **resume** the flight on next start. That includes a flight you'd landed but not yet submitted.
+
+### Landing grade
+
+Every landing is scored out of 100 and given a letter grade. You start at 100 and lose points for:
+
+| | Full marks | Points off |
+|---|---|---|
+| Vertical speed | 0 to -200 fpm | -200 to -300: 10 · -300 to -400: 20 · -400 to -600: 35 · -600 to -800: 50 |
+| G at touchdown | 1.3 G or less | up to 1.5 G: 5 · up to 1.8 G: 15 · over 1.8 G: 25 |
+| Bank at touchdown | 3° or less | up to 5°: 5 · up to 8°: 10 · over 8°: 20 |
+| Bounces | one touchdown | 10 per bounce |
+
+**A** 90+ · **B** 80–89 · **C** 70–79 · **D** 60–69 · **F** below 60
+
+Pitch and touchdown speed are shown in the debrief but not graded, because tailwheel and nosewheel aircraft land at very different attitudes. Your average grade and landing rate are shown in the header, e.g. **B · -164 fpm**.
 
 ### Ranks
 
@@ -59,6 +84,34 @@ Hours flown unlock ranks, and each rank unlocks more of the fleet.
 | ATP Captain | 1001 |
 | ATP Senior Captain | 1501 |
 | Executive Command Officer | 3000 |
+
+---
+
+## After the flight
+
+### Debrief
+Every submitted flight has a debrief. Open it from the popup after Submit, from **View** in the Logbook, or by double-clicking a flight in the Dashboard's history. It shows:
+- **Header:** the ACCEPTED or REJECTED badge (with the reason), the flight, aircraft, date, network and landing grade.
+- **Route:** the route you flew on the map, against the planned SimBrief route.
+- **Flight profile:** altitude, IAS and ground speed over the whole flight.
+- **Landing:** the grade's breakdown, showing where you lost points, plus pitch, touchdown speed and how many times you touched down.
+- **Plan vs actual:** block time, fuel burned, distance and cruise altitude, against your SimBrief plan.
+- **Timeline:** block out, takeoff, gear and flap changes (gear extended over its speed limit is flagged), touchdowns and block in, in UTC.
+
+### Profile
+Your career in numbers:
+- **Totals:** flights, hours, distance, passengers, cargo and rejections.
+- **Aircraft:** hours by type, your favourite type and your most-flown airframe.
+- **Airports:** your most visited, plus how many airports, countries and continents you've flown to.
+- **Landings:** landing rates and grades, and your trend over the last 20 flights.
+- **Flight durations**, grouped 0–2, 2–4, 4–8, 8–16 and 16+ hours.
+- **Records:** longest flight by distance and by time, and your softest landing.
+- **Networks:** Offline vs VATSIM vs IVAO.
+- **Activity:** flights per month.
+
+Only accepted flights count toward your stats.
+
+> Flights logged before v1.1 didn't record a track, timeline or touchdown details. Their debrief shows what there is, and they're graded on landing rate alone.
 
 ---
 
@@ -104,6 +157,8 @@ python build.py
 - `dist\Tailwind-Setup-<version>.exe` is the installer. It's only built if [Inno Setup](https://jrsoftware.org/isdl.php) is installed.
 
 Without the `SimConnect` package, the build supports X-Plane only.
+
+The landing grade's numbers all live at the top of `core/landing_grade.py`. Change them there, and every logged flight is re-graded the next time Tailwind starts.
 
 ## Licence
 

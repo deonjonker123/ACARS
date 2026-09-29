@@ -233,6 +233,7 @@ need an internet connection; without one a message is shown instead.
         highlightKey: null,
         live: null,
         hovering: false,
+        debrief: null,
     };
 
     let ready = false;
@@ -244,6 +245,7 @@ need an internet connection; without one a message is shown instead.
         setHistory: (routes, opts) => whenReady(() => setHistory(routes, opts || {})),
         highlightFlight: id => whenReady(() => highlightFlight(id)),
         setLive: live => whenReady(() => setLive(live)),
+        setDebrief: debrief => whenReady(() => setDebrief(debrief)),
         resetView: () => whenReady(() => map.jumpTo(WORLD_VIEW)),
         _geo: { distanceNm, greatCircle, greatCirclePath, unwrap, formatAltitude },
     };
@@ -312,6 +314,9 @@ need an internet connection; without one a message is shown instead.
         if (!map.hasImage("plane")) {
             const plane = makePlaneImage();
             map.addImage("plane", plane.image, { pixelRatio: plane.pixelRatio });
+            map.addSource("debrief-planned", { type: "geojson", data: EMPTY });
+            map.addSource("debrief-flown", { type: "geojson", data: EMPTY });
+            map.addSource("debrief-airports", { type: "geojson", data: EMPTY });
         }
 
         map.addSource("history", { type: "geojson", data: state.history });
@@ -364,8 +369,78 @@ need an internet connection; without one a message is shown instead.
             },
         });
 
+                map.addLayer({
+            id: "debrief-planned", type: "line", source: "debrief-planned",
+            layout: { "line-join": "round" },
+            paint: { "line-color": COLORS.textSecondary, "line-width": 1.5, "line-dasharray": [3, 2] },
+        });
+        map.addLayer({
+            id: "debrief-flown", type: "line", source: "debrief-flown",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": COLORS.accent, "line-width": 2.5 },
+        });
+        map.addLayer({
+            id: "debrief-airports", type: "circle", source: "debrief-airports",
+            paint: {
+                "circle-radius": 4,
+                "circle-color": COLORS.accent,
+                "circle-stroke-color": COLORS.bg,
+                "circle-stroke-width": 2,
+            },
+        });
+        if (map.getStyle().glyphs) map.addLayer({
+            id: "debrief-airport-labels", type: "symbol", source: "debrief-airports",
+            layout: {
+                "text-field": ["get", "icao"],
+                "text-size": 11,
+                "text-offset": [0, 1.1],
+                "text-anchor": "top",
+                "text-font": ["Noto Sans Regular"],
+            },
+            paint: { "text-color": COLORS.text, "text-halo-color": COLORS.bg, "text-halo-width": 1.5 },
+        });
+
         applyHighlight();
         renderLive();
+        renderDebrief(false);
+    }
+
+    function setDebrief(debrief) {
+        state.debrief = debrief || null;
+        renderDebrief(true);
+    }
+
+    function renderDebrief(fit) {
+        const flownSource = map.getSource("debrief-flown");
+        if (!flownSource) return;
+        const d = state.debrief;
+        if (!d) {
+            flownSource.setData(EMPTY);
+            map.getSource("debrief-planned").setData(EMPTY);
+            map.getSource("debrief-airports").setData(EMPTY);
+            return;
+        }
+
+        const plannedRaw = (d.planned || []).filter(validPoint);
+        const planned = plannedRaw.length > 1 ? unwrap(greatCirclePath(plannedRaw)) : [];
+        const flownRaw = (d.flown || []).filter(validPoint);
+        const flown = flownRaw.length > 1 ? unwrap(flownRaw, planned.length ? planned[0][0] : undefined) : [];
+        const airports = (d.airports || []).filter(a => a && validPoint([a.lon, a.lat]));
+
+        map.getSource("debrief-planned").setData(lineFeature(planned));
+        flownSource.setData(lineFeature(flown));
+        map.getSource("debrief-airports").setData({
+            type: "FeatureCollection",
+            features: airports.map(a => ({
+                type: "Feature", properties: { icao: a.icao || "" },
+                geometry: { type: "Point", coordinates: [a.lon, a.lat] },
+            })),
+        });
+
+        if (fit) {
+            const all = planned.concat(flown).concat(airports.map(a => [a.lon, a.lat]));
+            if (all.length) fitTo(boundsOf(all), 9);
+        }
     }
 
     map.on("style.load", () => {

@@ -41,6 +41,8 @@ SIMVARS = {
     "vertical_speed": "VERTICAL_SPEED",
     "g_force": "G_FORCE",
     "heading_true": "PLANE_HEADING_DEGREES_MAGNETIC",
+    "bank": "PLANE_BANK_DEGREES",
+    "pitch": "PLANE_PITCH_DEGREES",
 
     "latitude": "PLANE_LATITUDE",
     "longitude": "PLANE_LONGITUDE",
@@ -76,11 +78,28 @@ def _sanitize_atccom(raw):
 _RADIAN_KEYS = {"heading_true"}
 
 SAMPLE_INTERVAL_S = 0.05
+TOUCHDOWN_G_SAMPLES = 10
+
+
+def _degrees(radians):
+    return math.degrees(radians) if radians is not None else None
+
+
+def _attitude(bank_rad, pitch_rad):
+    """SimConnect bank/pitch (radians) -> (bank, pitch) in degrees: bank as
+    an angle either way (0 = wings level), pitch positive nose-up
+    (SimConnect's own pitch is negative nose-up)."""
+    bank, pitch = _degrees(bank_rad), _degrees(pitch_rad)
+    return (abs(bank) if bank is not None else None,
+            -pitch if pitch is not None else None)
 
 
 class _TouchdownSampler(threading.Thread):
-    """Reads on-ground + vertical speed 20x a second and records the
-    vertical speed of every touchdown. See the module docstring."""
+    """Reads on-ground + vertical speed 20x a second and records every
+    touchdown: its vertical speed, the attitude and speeds at that moment,
+    and the peak G over the next TOUCHDOWN_G_SAMPLES samples (half a
+    second - the G spike comes as the gear takes the weight). See the
+    module docstring."""
 
     def __init__(self, sm):
         super().__init__(name="TouchdownSampler", daemon=True)
@@ -88,6 +107,8 @@ class _TouchdownSampler(threading.Thread):
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._touchdowns = []
+        self._open = None
+        self._open_samples_left = 0
         self._was_on_ground = None
         self._last_airborne_vs = None
         self._error_reported = False
@@ -109,24 +130,55 @@ class _TouchdownSampler(threading.Thread):
             return
         on_ground = on_ground >= 0.5
 
+        if self._open is not None:
+            self._track_touchdown_g()
+
         if not on_ground:
             if vs is not None:
                 self._last_airborne_vs = vs
         elif self._was_on_ground is False and self._last_airborne_vs is not None:
             readings = [self._last_airborne_vs] + ([vs] if vs is not None else [])
-            with self._lock:
-                self._touchdowns.append(min(readings))
+            self._open_touchdown(min(readings))
         self._was_on_ground = on_ground
 
+    def _open_touchdown(self, vs):
+        """A touchdown just happened: note the moment's attitude and speeds,
+        then keep watching G for a few samples before handing it over."""
+        if self._open is not None:
+            self._close_touchdown()
+        bank, pitch = _attitude(self._aq.get("PLANE_BANK_DEGREES"), self._aq.get("PLANE_PITCH_DEGREES"))
+        self._open = {
+            "vs": vs,
+            "g": self._aq.get("G_FORCE"),
+            "bank": bank,
+            "pitch": pitch,
+            "ias": self._aq.get("AIRSPEED_INDICATED"),
+            "gs": self._aq.get("GROUND_VELOCITY"),
+        }
+        self._open_samples_left = TOUCHDOWN_G_SAMPLES
+
+    def _track_touchdown_g(self):
+        g = self._aq.get("G_FORCE")
+        if g is not None and (self._open["g"] is None or g > self._open["g"]):
+            self._open["g"] = g
+        self._open_samples_left -= 1
+        if self._open_samples_left <= 0:
+            self._close_touchdown()
+
+    def _close_touchdown(self):
+        with self._lock:
+            self._touchdowns.append(self._open)
+        self._open = None
+
     def take(self):
-        """The touchdown rates recorded since the last call (clears them)."""
+        """The touchdowns recorded since the last call (clears them), each
+        {"vs", "g", "bank", "pitch", "ias", "gs"} - fpm, G, degrees, kt."""
         with self._lock:
             touchdowns, self._touchdowns = self._touchdowns, []
         return touchdowns
 
     def stop(self):
         self._stop_event.set()
-
 
 class MSFSConnector:
     SIM_NAME = "MSFS / P3D (SimConnect)"
@@ -189,6 +241,7 @@ class MSFSConnector:
             if val is not None:
                 raw[key] = math.degrees(val) % 360
 
+        raw["bank"], raw["pitch"] = _attitude(raw.get("bank"), raw.get("pitch"))
         raw["touchdowns"] = self._sampler.take() if self._sampler else []
 
         return raw

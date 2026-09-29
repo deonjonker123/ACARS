@@ -2,7 +2,8 @@
 ui/pages/settings_page.py
 
 Settings page - the pilot profile: name, SimBrief Pilot ID, VATSIM ID,
-IVAO ID and home airport. Saved to the pilot row via
+IVAO ID and home airport, in three cards (Pilot; Flight Planning; Online
+Networks) centred in a column up to FORM_MAX_WIDTH wide. Saved to the pilot row via
 FlightDatabase.update_pilot_profile(); pilot stats (hours, rank, flights)
 are never touched from here.
 
@@ -22,7 +23,7 @@ import os
 import sys
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer
 
@@ -31,18 +32,27 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from ui.theme import PALETTE, font, font_label
 from core.airports import _DEFAULT_CSV_PATH, _VALID_TYPES
 
-FORM_MAX_WIDTH = 560
+FORM_MAX_WIDTH = 880
 SAVED_MESSAGE_MS = 3000
 
-_INPUT_STYLE = f"""
+_PAGE_STYLE = f"""
     QLineEdit {{
         background-color: {PALETTE['bg_input']};
         color: {PALETTE['text_primary']};
         border: 1px solid {PALETTE['border']};
         border-radius: 4px;
-        padding: 6px 8px;
+        padding: 9px 12px;
+        font-size: 12px;
     }}
     QLineEdit:focus {{ border-color: {PALETTE['accent_dim']}; }}
+    QPushButton#SaveButton {{
+        background-color: {PALETTE['accent_bg']};
+        color: {PALETTE['accent']};
+        border: 1px solid {PALETTE['accent_dim']};
+        padding: 9px 28px;
+        font-size: 11px;
+    }}
+    QPushButton#SaveButton:hover {{ border-color: {PALETTE['accent']}; }}
 """
 
 
@@ -70,57 +80,104 @@ class SettingsPage(QWidget):
         self.db = db
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(32, 24, 32, 24)
-        outer.setSpacing(16)
+        outer.setContentsMargins(32, 32, 32, 24)
 
-        card = QWidget()
-        card.setObjectName("Card")
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setMaximumWidth(FORM_MAX_WIDTH)
-        card.setStyleSheet(_INPUT_STYLE)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(8)
+        centred = QHBoxLayout()
+        centred.addStretch(1)
+        column_widget = QWidget()
+        column_widget.setMaximumWidth(FORM_MAX_WIDTH)
+        column_widget.setStyleSheet(_PAGE_STYLE)
+        centred.addWidget(column_widget, stretch=100)
+        centred.addStretch(1)
+        outer.addLayout(centred)
+        outer.addStretch()
 
-        title = QLabel("PILOT PROFILE")
-        title.setObjectName("SectionLabel")
-        title.setFont(font_label(10))
-        layout.addWidget(title)
-        layout.addSpacing(4)
+        column = QVBoxLayout(column_widget)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(16)
 
-        self.name_input = self._add_field(layout, "PILOT NAME", "e.g. Jane Doe")
-
-        self.simbrief_input = self._add_field(layout, "SIMBRIEF PILOT ID", "e.g. 123456")
-        layout.addWidget(self._hint("SimBrief → Account Settings → Pilot ID"))
-
-        self.vatsim_input = self._add_field(layout, "VATSIM ID", "e.g. 1234567")
-        self.ivao_input = self._add_field(layout, "IVAO ID", "e.g. 123456")
-
-        self.home_input = self._add_field(layout, "HOME AIRPORT", "ICAO, e.g. KLAX")
+        card, grid = self._section("PILOT", "How you appear in Tailwind, and your home airport.")
+        self.name_input, name_box, _ = self._field("PILOT NAME", "e.g. Jane Doe")
+        self.home_input, home_box, self.home_hint = self._field("HOME AIRPORT", "ICAO, e.g. KLAX", hint="")
         self.home_input.setMaxLength(4)
         self.home_input.textEdited.connect(self._force_uppercase)
-        self.home_hint = self._hint("")
-        layout.addWidget(self.home_hint)
+        grid.addWidget(name_box, 0, 0)
+        grid.addWidget(home_box, 0, 1)
+        column.addWidget(card)
 
-        layout.addSpacing(8)
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        card, grid = self._section("FLIGHT PLANNING", "Tailwind fetches your latest SimBrief flight plan with this ID.")
+        self.simbrief_input, box, _ = self._field("SIMBRIEF PILOT ID", "e.g. 123456",
+                                                  hint="SimBrief → Account Settings → Pilot ID")
+        grid.addWidget(box, 0, 0, 1, 2)
+        row.addWidget(card, stretch=1)
+
+        card, grid = self._section("ONLINE NETWORKS", "Optional - used to check if you're connected when you "
+                                                      "dispatch a flight on VATSIM or IVAO.")
+        self.vatsim_input, box, _ = self._field("VATSIM ID", "e.g. 1234567")
+        grid.addWidget(box, 0, 0)
+        self.ivao_input, box, _ = self._field("IVAO ID", "e.g. 123456")
+        grid.addWidget(box, 0, 1)
+        row.addWidget(card, stretch=1)
+        column.addLayout(row)
+
         save_row = QHBoxLayout()
+        save_row.addStretch()
         self.saved_label = QLabel("")
         self.saved_label.setFont(font_label(9))
         self.saved_label.setStyleSheet(f"color: {PALETTE['positive']};")
         save_row.addWidget(self.saved_label)
-        save_row.addStretch()
-        save_btn = QPushButton("Save")
+        save_row.addSpacing(12)
+        save_btn = QPushButton("Save Profile")
+        save_btn.setObjectName("SaveButton")
+        save_btn.setFont(font_label(10))
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self._save)
         save_row.addWidget(save_btn)
-        layout.addLayout(save_row)
-
-        outer.addWidget(card, alignment=Qt.AlignLeft | Qt.AlignTop)
-        outer.addStretch()
+        column.addLayout(save_row)
 
         self._load()
 
-    def _add_field(self, layout, label_text, placeholder):
+    def _section(self, title_text, description):
+        """A titled card with a one-line description; returns (card, grid)
+        for its fields - two equal columns."""
+        card = QWidget()
+        card.setObjectName("Card")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 20, 24, 22)
+        layout.setSpacing(4)
+
+        title = QLabel(title_text)
+        title.setObjectName("SectionLabel")
+        title.setFont(font_label(10))
+        layout.addWidget(title)
+
+        text = QLabel(description)
+        text.setFont(font(9))
+        text.setWordWrap(True)
+        text.setStyleSheet(f"color: {PALETTE['text_muted']};")
+        layout.addWidget(text)
+        layout.addSpacing(12)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        layout.addLayout(grid)
+        layout.addStretch()
+        return card, grid
+
+    def _field(self, label_text, placeholder, hint=None):
+        """Label, input and (optional) hint line stacked in one box.
+        Returns (input, box, hint label or None)."""
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
         label = QLabel(label_text)
         label.setFont(font_label(9))
         label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
@@ -130,13 +187,14 @@ class SettingsPage(QWidget):
         field.setPlaceholderText(placeholder)
         field.returnPressed.connect(self._save)
         layout.addWidget(field)
-        return field
 
-    def _hint(self, text):
-        hint = QLabel(text)
-        hint.setFont(font(8))
-        hint.setStyleSheet(f"color: {PALETTE['text_muted']};")
-        return hint
+        hint_label = None
+        if hint is not None:
+            hint_label = QLabel(hint)
+            hint_label.setFont(font(8))
+            hint_label.setStyleSheet(f"color: {PALETTE['text_muted']};")
+            layout.addWidget(hint_label)
+        return field, box, hint_label
 
     def _force_uppercase(self, text):
         cursor = self.home_input.cursorPosition()

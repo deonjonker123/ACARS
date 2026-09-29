@@ -11,20 +11,19 @@ Usage:
     page.refresh()   # call after any flight is logged, to reload the table
 """
 
-import json
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
-    QTableWidgetItem, QPushButton, QHeaderView, QDialog, QTextEdit,
-    QAbstractItemView
+    QTableWidgetItem, QPushButton, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
-from ui.theme import PALETTE, font, font_label
+from ui.theme import PALETTE, GRADE_COLORS, font_label
+from core.landing_grade import letter_for
 
 COLUMNS = [
     "DATE", "FLIGHT", "DEP", "ARR", "AIRCRAFT", "REG",
-    "PAX", "CARGO", "DIST (NM)", "DURATION", "LANDING RATE", ""
+    "PAX", "CARGO", "DIST (NM)", "DURATION", "LANDING RATE", "GRADE", "STATUS", ""
 ]
 
 
@@ -110,10 +109,13 @@ class LogbookPage(QWidget):
         """Reloads the table from the database. Call after any flight logs."""
         flights = self.db.list_flights(limit=10000)
 
-        total_nm = sum(f["distance_nm"] or 0 for f in flights)
-        total_hours = sum(f["block_hours"] or 0 for f in flights)
+        accepted = [f for f in flights if f.get("status") != "rejected"]
+        rejected = len(flights) - len(accepted)
+        total_nm = sum(f["distance_nm"] or 0 for f in accepted)
+        total_hours = sum(f["block_hours"] or 0 for f in accepted)
         self.summary_label.setText(
-            f"{len(flights)} FLIGHTS  ·  {total_nm:,.1f} NM  ·  {_format_duration(total_hours)}"
+            f"{len(accepted)} FLIGHTS  ·  {total_nm:,.1f} NM  ·  {_format_duration(total_hours)}"
+            + (f"  ·  {rejected} REJECTED" if rejected else "")
         )
 
         self.table.setSortingEnabled(False)
@@ -148,31 +150,32 @@ class LogbookPage(QWidget):
                 landing_item.setForeground(QColor(color))
             self.table.setItem(row, 10, landing_item)
 
+            score = f.get("landing_grade")
+            letter = letter_for(score)
+            grade_item = _NumericItem(letter or "—", score if score is not None else -1)
+            if letter:
+                grade_item.setForeground(QColor(GRADE_COLORS[letter]))
+            self.table.setItem(row, 11, grade_item)
+
+            is_rejected = f.get("status") == "rejected"
+            status_item = QTableWidgetItem("REJECTED" if is_rejected else "ACCEPTED")
+            status_item.setForeground(QColor(PALETTE["negative"] if is_rejected else PALETTE["positive"]))
+            if is_rejected and f.get("reject_reason"):
+                status_item.setToolTip(f["reject_reason"])
+            self.table.setItem(row, 12, status_item)
+
             view_btn = QPushButton("View")
             view_btn.setObjectName("TableActionButton")
             view_btn.setCursor(Qt.PointingHandCursor)
             view_btn.clicked.connect(
                 lambda checked=False, fid=f["id"]: self._show_detail(fid)
             )
-            self.table.setCellWidget(row, 11, view_btn)
+            self.table.setCellWidget(row, 13, view_btn)
 
         self.table.setSortingEnabled(True)
 
     def _show_detail(self, flight_id):
-        log_data = self.db.get_flight_log(flight_id)
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Flight #{flight_id} - Recorded Detail")
-        dialog.resize(560, 480)
-        layout = QVBoxLayout(dialog)
-
-        text = QTextEdit()
-        text.setReadOnly(True)
-        text.setFont(font(9))
-        text.setStyleSheet(f"background-color: {PALETTE['bg_panel']}; color: {PALETTE['text_primary']};")
-        if log_data is not None:
-            text.setPlainText(json.dumps(log_data, indent=2))
-        else:
-            text.setPlainText("No recorded detail available for this flight.")
-        layout.addWidget(text)
-
-        dialog.exec()
+        """Opens the flight's debrief (ui/pages/debrief_page.py)."""
+        main_window = self.window()
+        if hasattr(main_window, "open_debrief"):
+            main_window.open_debrief(flight_id, return_to="logbook")

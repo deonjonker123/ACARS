@@ -115,6 +115,13 @@ PALETTE = {
     "negative":         "#ee2625",
 }
 
+GRADE_COLORS = {
+    "A": PALETTE["positive"],
+    "B": "#6f9f34",
+    "C": "#d8b41f",
+    "D": PALETTE["warning"],
+    "F": PALETTE["negative"],
+}
 
 WEIGHT_LIGHT = QFont.Light
 WEIGHT_REGULAR = QFont.Normal

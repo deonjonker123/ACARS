@@ -24,9 +24,9 @@ Flight rules (a flight only exists because of a dispatched flight plan):
     submit_pending_flight() or discard_pending_flight(). Nothing is
     judged until Submit.
   - On Submit, the aircraft must have parked within ARMING_RADIUS_NM of
-    the planned destination or the planned alternate. Otherwise the
-    flight is REJECTED: pilot's rejected count +1, nothing logged, no
-    hours added.
+    the planned destination or the planned alternate. Otherwise the flight
+    is REJECTED: logged as rejected (for the record and the debrief),
+    pilot's rejected count +1, no hours or stats.
   - A landing harder than HARD_LANDING_LIMIT_FPM also REJECTS the flight,
     the same way. Exactly the limit is accepted; a flight with no
     captured landing rate isn't judged on it.
@@ -73,13 +73,15 @@ from datetime import datetime
 
 from connectors.auto import AutoConnector
 from core.flight_state import FlightStateTracker
-from core.db import FlightDatabase, normalize_registration, VALID_NETWORKS
+from core.db import (FlightDatabase, normalize_registration, VALID_NETWORKS, STATUS_ACCEPTED, STATUS_REJECTED)
+from core.airports import AirportLookup
+from core.landing_grade import grade_flight
 from core.paths import ACTIVE_FLIGHT_PATH
 
 ARMING_RADIUS_NM = 5.0
 HARD_LANDING_LIMIT_FPM = -800
 NETWORK_ONLINE_SHARE = 0.5
-
+UNKNOWN_AIRPORT = "----"
 
 class FlightSaveBlocked(Exception):
     """Raised by record_pending_flight() when the flight may not be saved
@@ -106,18 +108,22 @@ def _distance_nm(lat1, lon1, lat2, lon2):
 
 def _plan_for_log(plan):
     """The flight plan as stored in the logbook's flight detail (log_data):
-    everything except the bulky parts - SimBrief's OFP text (~50 KB), the
-    takeoff/landing report text and the navlog. The PDF link is kept."""
+    everything except the bulky parts - SimBrief's OFP text (~50 KB) and
+    the takeoff/landing report text. The PDF link is kept, and the navlog
+    only as each fix's ident and position (the debrief's planned route)."""
     stored = {k: v for k, v in plan.items() if k not in ("ofp", "navlog")}
     stored["ofp"] = {"pdf_url": (plan.get("ofp") or {}).get("pdf_url")}
+    stored["navlog"] = [
+        {"ident": fix.get("ident"), "lat": fix.get("lat"), "lon": fix.get("lon")}
+        for fix in plan.get("navlog") or []
+        if fix.get("lat") is not None and fix.get("lon") is not None
+    ]
     return stored
-
 
 def _distance_to_airport(lat, lon, airport):
     if airport is None:
         return None
     return _distance_nm(lat, lon, airport["lat"], airport["lon"])
-
 
 class FlightSessionController:
     def __init__(self, db=None):
@@ -377,14 +383,15 @@ class FlightSessionController:
 
     def submit_pending_flight(self):
         """Call when the pilot presses Submit. Checks the completed flight
-        against the flight rules, then either logs it (accepted) or counts
-        a rejection (nothing logged, no hours). Either way the dispatch
+        against the flight rules and logs it either way - accepted (hours,
+        rank and stats updated) or rejected (kept for the record and the
+        debrief, rejected count +1, nothing else counts). The dispatch
         ends. Returns the outcome for the UI, or None if nothing was pending:
 
-            {"accepted": True, "flight_id", "flight_number", "departure",
-             "arrival", "registration", "block_hours", "landing_vs", "network"}
-            {"accepted": False, "reason", "flight_number", "departure",
-             "arrival", "registration", "block_hours", "landing_vs"}
+            {"accepted", "flight_id", "flight_number", "departure", "arrival",
+             "registration", "block_hours", "landing_vs", "network",
+             "grade" ({"score", "letter", "parts"} or None),
+             "reason" (rejected only)}
 
         Raises FlightSaveBlocked (flight stays pending) if an accepted
         flight can't be logged: the dispatched airframe was removed from
@@ -395,25 +402,43 @@ class FlightSessionController:
 
         plan = self.dispatch_info["plan"]
         reason = self._check_arrival(event)
+        if reason is not None and not event.get("arrival_icao"):
+            event["arrival_icao"] = self._parked_at(event) or UNKNOWN_AIRPORT
+        grade = grade_flight(event, event.get("landing_vs"))
+        network = self.network_for_log()
+        flight_id = self._record_flight(event, grade, reject_reason=reason)
+
         outcome = {
             "accepted": reason is None,
+            "flight_id": flight_id,
             "flight_number": plan.get("flight_number"),
             "departure": plan["origin"]["icao"],
             "arrival": event.get("arrival_icao") or plan["destination"]["icao"],
             "registration": self.dispatch_info["registration"],
             "block_hours": event.get("block_hours"),
             "landing_vs": event.get("landing_vs"),
+            "network": network,
+            "grade": grade,
         }
-
-        if reason is None:
-            outcome["network"] = self.network_for_log()
-            outcome["flight_id"] = self._record_flight(event)
-        else:
+        if reason is not None:
             outcome["reason"] = reason
-            self.db.reject_flight()
 
         self._end_dispatch()
         return outcome
+
+    @staticmethod
+    def _parked_at(event):
+        """The ICAO of the airport the aircraft parked at, for a flight
+        that ended away from its plan - or None if there's none nearby."""
+        try:
+            lookup = AirportLookup()
+            lookup.load()
+            airport = lookup.find_nearest(event.get("arr_lat"), event.get("arr_lon"),
+                                          max_radius_nm=ARMING_RADIUS_NM)
+        except (OSError, RuntimeError) as e:
+            print(f"[flight_session] Couldn't look up the arrival airport: {e}")
+            return None
+        return airport["icao"] if airport else None
 
     def discard_pending_flight(self):
         """Call when the pilot presses Discard: drops the completed flight
@@ -426,26 +451,32 @@ class FlightSessionController:
         self._reset_network_checks()
         self.clear_active_flight()
 
-    def _record_flight(self, event):
+    def _record_flight(self, event, grade, reject_reason=None):
         """
-        Persists a completed flight. Returns the new flight's id.
+        Persists a submitted flight - accepted, or rejected if a
+        reject_reason is given. Returns the new flight's id.
 
-        Departure/arrival are the PLANNED airports: block start was only
-        allowed within range of the origin, and block end was checked
-        against the destination/alternate (event["arrival_icao"]).
+        Departure is the PLANNED origin (block start was only allowed
+        within range of it); arrival is the planned destination/alternate
+        it parked at (event["arrival_icao"]), or for a flight rejected for
+        parking elsewhere, the airport it did park at.
         Flight number, pax and cargo come from the SimBrief plan; distance
         and block time are what was actually flown.
         """
         plan = self.dispatch_info["plan"]
         registration = self.dispatch_info["registration"]
+        accepted = reject_reason is None
 
-        reason = self.db.save_block_reason(registration)
-        if reason is not None:
-            raise FlightSaveBlocked(reason)
+        if accepted:
+            reason = self.db.save_block_reason(registration)
+            if reason is not None:
+                raise FlightSaveBlocked(reason)
 
-        designation = self.db.get_aircraft(registration)["designation"]
+        aircraft = self.db.get_aircraft(registration, include_retired=True)
+        designation = aircraft["designation"] if aircraft else self.dispatch_info["designation"]
 
-        departed_at = datetime.fromtimestamp(event["block_start_time"]).isoformat() if event.get("block_start_time") else None
+        departed_at = datetime.fromtimestamp(event["block_start_time"]).isoformat() if event.get(
+            "block_start_time") else None
         arrived_at = datetime.fromtimestamp(event["time"]).isoformat() if event.get("time") else None
 
         log_data = dict(event)
@@ -458,7 +489,7 @@ class FlightSessionController:
             "logged_as": network,
         }
 
-        self.db.log_flight(
+        return self.db.log_flight(
             flight_number=plan.get("flight_number"),
             aircraft_designation=designation,
             aircraft_registration=registration,
@@ -473,8 +504,10 @@ class FlightSessionController:
             arrived_at=arrived_at,
             landing_vs=event.get("landing_vs"),
             log_data=log_data,
+            status=STATUS_ACCEPTED if accepted else STATUS_REJECTED,
+            landing_grade=grade["score"] if grade else None,
+            reject_reason=reject_reason,
         )
-        return self.db.list_flights(limit=1)[0]["id"]
 
     def connect(self):
         try:

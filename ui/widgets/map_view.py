@@ -111,6 +111,12 @@ class MapView(QWebEngineView):
     def set_live(self, live):
         self._call("live", "setLive", live)
 
+    def set_debrief(self, debrief):
+        """One flight's debrief map: {"planned": [[lon, lat], ...] (dashed),
+        "flown": [[lon, lat], ...] (solid), "airports": [{icao, lat, lon}]}.
+        Zooms to fit it. None clears it."""
+        self._call("debrief", "setDebrief", debrief)
+
     def reset_view(self):
         self._call("view", "resetView")
 

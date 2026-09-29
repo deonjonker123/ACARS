@@ -43,11 +43,14 @@ import re
 from contextlib import contextmanager
 
 from core.pilot import PilotProgress, load_fleet_data
+from core.landing_grade import grade_flight, formula_signature
 from core.paths import DB_PATH
 
 _DB_PATH = DB_PATH
 
 VALID_NETWORKS = {"VATSIM", "IVAO", "OFFLINE"}
+STATUS_ACCEPTED = "accepted"
+STATUS_REJECTED = "rejected"
 VALID_CATEGORIES = ("prop", "airliner", "bizjet", "cargo")
 COMPANY_REG_SUFFIX = "TW"
 _REG_PATTERN = re.compile(r"^[A-Z0-9-]{2,10}$")
@@ -143,6 +146,9 @@ class FlightDatabase:
             """)
 
             self._ensure_column(conn, "flights", "landing_vs", "REAL")
+            self._ensure_column(conn, "flights", "status", f"TEXT NOT NULL DEFAULT '{STATUS_ACCEPTED}'")
+            self._ensure_column(conn, "flights", "landing_grade", "REAL")
+            self._ensure_column(conn, "flights", "reject_reason", "TEXT")
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_meta (
@@ -157,6 +163,29 @@ class FlightDatabase:
             """)
 
             self._seed_fleet_once(conn)
+            self._regrade_if_formula_changed(conn)
+
+    def _regrade_if_formula_changed(self, conn):
+        """Keeps every flight's landing_grade in step with the grading
+        formula (core/landing_grade.py): the first time 1.1 starts, and
+        whenever a band there is changed, all flights are (re)graded from
+        their recorded landing. Cheap to check - it only runs on a change."""
+        signature = formula_signature()
+        stored = conn.execute(
+            "SELECT value FROM app_meta WHERE key = 'grade_formula'"
+        ).fetchone()
+        if stored is not None and stored["value"] == signature:
+            return
+        for row in conn.execute("SELECT id, landing_vs, log_data FROM flights").fetchall():
+            try:
+                log_data = json.loads(row["log_data"]) if row["log_data"] else {}
+            except ValueError:
+                log_data = {}
+            grade = grade_flight(log_data, row["landing_vs"])
+            conn.execute("UPDATE flights SET landing_grade = ? WHERE id = ?",
+                         (grade["score"] if grade else None, row["id"]))
+        conn.execute("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('grade_formula', ?)",
+                     (signature,))
 
     def _seed_fleet_once(self, conn):
         """First run only: turns every aircraft in fleet_and_ranks.json into
@@ -344,9 +373,15 @@ class FlightDatabase:
         """, (hours_delta, distance_delta, new_location, registration))
 
     def get_pilot(self):
+        """The pilot row, plus "average_landing_grade" (score 0-100 or None,
+        see average_landing_grade())."""
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM pilot WHERE id = 1").fetchone()
-            return dict(row) if row else None
+        if row is None:
+            return None
+        pilot = dict(row)
+        pilot["average_landing_grade"] = self.average_landing_grade()
+        return pilot
 
     def set_pilot_name(self, name):
         """Sets just the name. The Settings page uses update_pilot_profile()."""
@@ -401,22 +436,31 @@ class FlightDatabase:
         return progress
 
     def reject_flight(self):
-        """Call when a dispatched flight is abandoned/rejected rather than completed."""
+        """Counts a rejection without logging a flight (log_flight() with
+        status=STATUS_REJECTED does both)."""
         with self._connect() as conn:
             conn.execute("UPDATE pilot SET total_rejected = total_rejected + 1 WHERE id = 1")
 
     def log_flight(self, flight_number, aircraft_designation, aircraft_registration,
-                    network, departure_airport, arrival_airport, distance_nm,
-                    pax_count, cargo_kg, block_hours,
-                    departed_at=None, arrived_at=None, landing_vs=None, log_data=None):
+                   network, departure_airport, arrival_airport, distance_nm,
+                   pax_count, cargo_kg, block_hours,
+                   departed_at=None, arrived_at=None, landing_vs=None, log_data=None,
+                   status=STATUS_ACCEPTED, landing_grade=None, reject_reason=None):
         """
-        Records a completed flight and updates pilot + aircraft stats in one
-        transaction. `log_data` can be any JSON-serializable dict (the full
-        recorded flight detail) - stored as a blob, retrievable via
-        get_flight_log().
+        Records a submitted flight in the logbook and returns its id.
+        `log_data` can be any JSON-serializable dict (the full recorded
+        flight detail) - stored as a blob, retrievable via get_flight_log().
+        landing_grade is the score out of 100 (core/landing_grade.py).
 
-        Refuses (ValueError) if save_block_reason() says this aircraft can't
-        be saved - not in the active fleet, or pilot not rated for it.
+        status=STATUS_ACCEPTED: pilot and aircraft stats are updated in the
+        same transaction (hours, rank, flights, average landing rate,
+        locations). Refuses (ValueError) if save_block_reason() says this
+        aircraft can't be saved - not in the active fleet, or pilot not
+        rated for it.
+
+        status=STATUS_REJECTED (with reject_reason): logged for the record
+        and the debrief only - the pilot's rejected count goes up, nothing
+        else changes (no hours, rank, averages or locations).
 
         departed_at/arrived_at: ISO timestamp strings for the actual block
         start/end. Optional - if omitted, only block_hours (the duration)
@@ -424,25 +468,37 @@ class FlightDatabase:
         """
         if network not in VALID_NETWORKS:
             raise ValueError(f"network must be one of {VALID_NETWORKS}, got {network!r}")
+        if status not in (STATUS_ACCEPTED, STATUS_REJECTED):
+            raise ValueError(f"status must be {STATUS_ACCEPTED!r} or {STATUS_REJECTED!r}, got {status!r}")
 
         aircraft_registration = normalize_registration(aircraft_registration)
-        reason = self.save_block_reason(aircraft_registration)
-        if reason is not None:
-            raise ValueError(reason)
+        accepted = status == STATUS_ACCEPTED
+        if accepted:
+            reason = self.save_block_reason(aircraft_registration)
+            if reason is not None:
+                raise ValueError(reason)
 
         with self._connect() as conn:
-            conn.execute("""
-                INSERT INTO flights (
-                    flight_number, aircraft_designation, aircraft_registration,
-                    network, departure_airport, arrival_airport, departed_at, arrived_at,
-                    distance_nm, pax_count, cargo_kg, block_hours, landing_vs, log_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                flight_number, aircraft_designation, aircraft_registration,
-                network, departure_airport, arrival_airport, departed_at, arrived_at,
-                distance_nm, pax_count, cargo_kg, block_hours, landing_vs,
-                json.dumps(log_data) if log_data is not None else None,
-            ))
+            cursor = conn.execute("""
+                                  INSERT INTO flights (flight_number, aircraft_designation, aircraft_registration,
+                                                       network, departure_airport, arrival_airport, departed_at,
+                                                       arrived_at,
+                                                       distance_nm, pax_count, cargo_kg, block_hours, landing_vs,
+                                                       log_data,
+                                                       status, landing_grade, reject_reason)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  """, (
+                                      flight_number, aircraft_designation, aircraft_registration,
+                                      network, departure_airport, arrival_airport, departed_at, arrived_at,
+                                      distance_nm, pax_count, cargo_kg, block_hours or 0, landing_vs,
+                                      json.dumps(log_data) if log_data is not None else None,
+                                      status, landing_grade, None if accepted else reject_reason,
+                                  ))
+            flight_id = cursor.lastrowid
+
+            if not accepted:
+                conn.execute("UPDATE pilot SET total_rejected = total_rejected + 1 WHERE id = 1")
+                return flight_id
 
             self._update_aircraft_after_flight(
                 conn, aircraft_registration, block_hours, distance_nm or 0, arrival_airport
@@ -459,32 +515,58 @@ class FlightDatabase:
                     new_avg_landing = new_avg_landing + (landing_vs - new_avg_landing) / new_completed
 
             conn.execute("""
-                UPDATE pilot
-                SET total_hours_flown = ?,
-                    total_completed = ?,
-                    average_landing_rate = ?,
-                    current_location = COALESCE(?, current_location)
-                WHERE id = 1
-            """, (new_total_hours, new_completed, new_avg_landing, arrival_airport))
+                         UPDATE pilot
+                         SET total_hours_flown    = ?,
+                             total_completed      = ?,
+                             average_landing_rate = ?,
+                             current_location     = COALESCE(?, current_location)
+                         WHERE id = 1
+                         """, (new_total_hours, new_completed, new_avg_landing, arrival_airport))
 
             self._sync_pilot_rank(conn, new_total_hours)
+        return flight_id
 
-    def list_flights(self, limit=50):
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM flights ORDER BY logged_at DESC, id DESC LIMIT ?", (limit,)
-            ).fetchall()
-            return [dict(r) for r in rows]
-
-    def get_flight_log(self, flight_id):
-        """Returns the full recorded detail (log_data) for one flight, parsed from JSON."""
+    def average_landing_grade(self):
+        """The average landing grade score (0-100) over accepted flights
+        that have one, or None."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT log_data FROM flights WHERE id = ?", (flight_id,)
+                "SELECT AVG(landing_grade) AS avg FROM flights "
+                "WHERE status = ? AND landing_grade IS NOT NULL", (STATUS_ACCEPTED,)
             ).fetchone()
-            if row is None or row["log_data"] is None:
-                return None
-            return json.loads(row["log_data"])
+            return row["avg"] if row else None
+
+    def list_flights(self, limit=50, status=None):
+        """Newest first, without log_data. limit=None for all; status to
+        only get STATUS_ACCEPTED or STATUS_REJECTED flights."""
+        query = ("SELECT id, flight_number, aircraft_designation, aircraft_registration, network, "
+                 "departure_airport, arrival_airport, departed_at, arrived_at, distance_nm, "
+                 "pax_count, cargo_kg, block_hours, landing_vs, logged_at, status, "
+                 "landing_grade, reject_reason FROM flights")
+        params = []
+        if status is not None:
+            query += " WHERE status = ?"
+            params.append(status)
+        query += " ORDER BY logged_at DESC, id DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+    def get_flight(self, flight_id):
+        """One flight with everything (for the debrief): its columns plus
+        its detail parsed into "log_data" ({} if none). None if not found."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM flights WHERE id = ?", (flight_id,)).fetchone()
+        if row is None:
+            return None
+        flight = dict(row)
+        try:
+            flight["log_data"] = json.loads(flight["log_data"]) if flight["log_data"] else {}
+        except ValueError:
+            flight["log_data"] = {}
+        return flight
 
 
 if __name__ == "__main__":

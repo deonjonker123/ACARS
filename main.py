@@ -43,6 +43,8 @@ from ui.pages.flight_plan_page import FlightPlanPage
 from ui.pages.aircraft_page import AircraftPage
 from ui.pages.ranks_page import RanksPage
 from ui.pages.settings_page import SettingsPage
+from ui.pages.profile_page import ProfilePage
+from ui.pages.debrief_page import DebriefPage
 from core.db import FlightDatabase
 
 LOG_MAX_BYTES = 1_000_000
@@ -108,12 +110,14 @@ def main():
 
         pages = [
             ("home", "Dashboard", "Virtual Aviation Gumph", lambda: HomePage(db)),
+            ("profile", "Profile", "Pilot Profile", lambda: ProfilePage(db)),
             ("live_map", "Live Map", "Active Flight", lambda: LiveMapPage(db)),
             ("flight_plan", "Flight Plan", "Dispatched Flight", lambda: FlightPlanPage()),
             ("logbook", "Logbook", "Flight History", lambda: LogbookPage(db)),
             ("aircraft", "Aircraft", "Your Fleet", lambda: AircraftPage(db)),
             ("ranks", "Ranks", "Career Progression", lambda: RanksPage(db)),
-            ("settings", "Settings", "Pilot Profile", lambda: SettingsPage(db)),
+            ("settings", "Settings", "Settings", lambda: SettingsPage(db)),
+            ("debrief", "Debrief", "Flight Review", lambda: DebriefPage(db)),
         ]
         for i, (key, title, subtitle, build) in enumerate(pages):
             current = f"Loading {title}"

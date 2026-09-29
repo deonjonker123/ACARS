@@ -37,7 +37,6 @@ without them are looked up by ICAO in data/airports.csv (core/airports.py),
 once per code per session.
 """
 
-import json
 import math
 import sys
 import os
@@ -47,10 +46,11 @@ from PySide6.QtWidgets import (
     QMessageBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import QTimer, Qt, QThread, Signal, QSettings
+from PySide6.QtGui import QColor
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from ui.theme import PALETTE, font, font_heading, font_label
+from ui.theme import PALETTE, GRADE_COLORS, font, font_heading, font_label
 from ui.widgets.plan_summary import PlanSummary, fmt_hm
 from ui.widgets.map_view import MapView
 from ui.pages.logbook_page import _format_date
@@ -58,6 +58,7 @@ from core.flight_session import FlightSessionController, FlightSaveBlocked, Flig
 from core.simbrief import fetch_latest_ofp, SimBriefError
 from core.pilot import PilotProgress
 from core.airports import find_airports
+from core.landing_grade import letter_for
 from core.networks import check_online
 
 POLL_INTERVAL_MS = 1000
@@ -70,7 +71,7 @@ HISTORY_LIMIT = 100
 HISTORY_PAGE_SIZE = 10
 HISTORY_ROW_HEIGHT = 28
 HISTORY_HEADER_HEIGHT = 30
-HISTORY_COLUMNS = ["DATE", "FLIGHT", "DEP → ARR", "REG", "DISTANCE"]
+HISTORY_COLUMNS = ["DATE", "FLIGHT", "DEP → ARR", "REG", "DISTANCE", "GRADE", "STATUS"]
 
 _INPUT_STYLE = f"""
     QComboBox {{
@@ -111,37 +112,6 @@ def _fmt(value, unit="", decimals=1):
     if isinstance(value, float):
         return f"{value:.{decimals}f}{unit}"
     return f"{value}{unit}"
-
-
-def _stored_airport(airport, icao):
-    """An airport dict from a stored flight plan, if it's the airport
-    `icao` and has coordinates - else None."""
-    if not isinstance(airport, dict) or not icao:
-        return None
-    if (airport.get("icao") or "").upper() != icao.upper():
-        return None
-    lat, lon = airport.get("lat"), airport.get("lon")
-    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
-        return None
-    return {"icao": icao.upper(), "lat": lat, "lon": lon}
-
-
-def _flight_endpoints(flight):
-    """(dep, arr) airport dicts ({icao, lat, lon}) for a logbook row, taken
-    from its stored flight plan. Either is None if the plan doesn't have
-    it (older flights) - the caller then looks it up by ICAO."""
-    try:
-        plan = (json.loads(flight.get("log_data") or "null") or {}).get("flight_plan") or {}
-    except (ValueError, AttributeError):
-        plan = {}
-    if not isinstance(plan, dict):
-        plan = {}
-    dep_icao = flight.get("departure_airport")
-    arr_icao = flight.get("arrival_airport")
-    dep = _stored_airport(plan.get("origin"), dep_icao)
-    arr = (_stored_airport(plan.get("destination"), arr_icao)
-           or _stored_airport(plan.get("alternate"), arr_icao))
-    return dep, arr
 
 
 def _type_key(text):
@@ -480,6 +450,8 @@ class HomePage(QWidget):
             HISTORY_HEADER_HEIGHT + HISTORY_ROW_HEIGHT * HISTORY_PAGE_SIZE + 4
         )
         self.history_table.itemSelectionChanged.connect(self._on_history_selection)
+        self.history_table.cellDoubleClicked.connect(self._open_history_debrief)
+        self.history_table.setToolTip("Double-click a flight to open its debrief")
         layout.addWidget(self.history_table)
 
         pager = QHBoxLayout()
@@ -527,13 +499,9 @@ class HomePage(QWidget):
         self._history_signature = signature
         self._history_flights = flights
 
-        endpoints = {f["id"]: _flight_endpoints(f) for f in flights}
-        missing = set()
-        for f in flights:
-            dep, arr = endpoints[f["id"]]
-            for airport, icao in ((dep, f["departure_airport"]), (arr, f["arrival_airport"])):
-                if airport is None and icao and icao.upper() not in self._airport_cache:
-                    missing.add(icao.upper())
+        missing = {icao.upper() for f in flights
+                   for icao in (f["departure_airport"], f["arrival_airport"])
+                   if icao and icao.upper() not in self._airport_cache}
         if missing:
             found = find_airports(missing)
             for icao in missing:
@@ -544,9 +512,8 @@ class HomePage(QWidget):
 
         routes = []
         for f in flights:
-            dep, arr = endpoints[f["id"]]
-            dep = dep or self._airport_cache.get((f["departure_airport"] or "").upper())
-            arr = arr or self._airport_cache.get((f["arrival_airport"] or "").upper())
+            dep = self._airport_cache.get((f["departure_airport"] or "").upper())
+            arr = self._airport_cache.get((f["arrival_airport"] or "").upper())
             if dep is not None and arr is not None:
                 routes.append({"id": f["id"], "dep": dep, "arr": arr})
 
@@ -566,17 +533,25 @@ class HomePage(QWidget):
             dep = f["departure_airport"] or "—"
             arr = f["arrival_airport"] or "—"
             dist = f["distance_nm"]
+            letter = letter_for(f.get("landing_grade"))
+            rejected = f.get("status") == "rejected"
             values = [
                 _format_date(f["logged_at"]),
                 f["flight_number"] or "—",
                 f"{dep} → {arr}",
                 f["aircraft_registration"] or "—",
                 f"{dist:,.0f} nm" if dist is not None else "—",
+                letter or "—",
+                "REJECTED" if rejected else "ACCEPTED",
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if col == 0:
                     item.setData(Qt.UserRole, f["id"])
+                if col == 5 and letter:
+                    item.setForeground(QColor(GRADE_COLORS[letter]))
+                if col == 6:
+                    item.setForeground(QColor(PALETTE["negative"] if rejected else PALETTE["positive"]))
                 self.history_table.setItem(row, col, item)
         self.history_table.blockSignals(False)
         self.history_map.highlight_flight(None)
@@ -600,6 +575,16 @@ class HomePage(QWidget):
             return
         item = self.history_table.item(rows[0].row(), 0)
         self.history_map.highlight_flight(item.data(Qt.UserRole) if item else None)
+
+    def _open_history_debrief(self, row, _column):
+        item = self.history_table.item(row, 0)
+        if item is not None:
+            self._open_debrief(item.data(Qt.UserRole))
+
+    def _open_debrief(self, flight_id):
+        main_window = self.window()
+        if flight_id is not None and hasattr(main_window, "open_debrief"):
+            main_window.open_debrief(flight_id, return_to="home")
 
     def _show_all_history(self):
         self.history_table.clearSelection()
@@ -1012,10 +997,12 @@ class HomePage(QWidget):
         route = f"{outcome.get('flight_number') or 'Flight'}   {outcome['departure']} → {outcome['arrival']}"
         hours = outcome.get("block_hours")
         landing = outcome.get("landing_vs")
+        grade = outcome.get("grade")
         details = [
             f"Aircraft: {outcome['registration']}",
             f"Block time: {fmt_hm(hours) if hours is not None else '—'}",
             f"Landing: {landing:,.0f} fpm" if isinstance(landing, (int, float)) else "Landing: —",
+            f"Landing grade: {grade['letter']} ({grade['score']:.0f}/100)" if grade else "Landing grade: —",
         ]
 
         box = QMessageBox(self)
@@ -1030,10 +1017,14 @@ class HomePage(QWidget):
             box.setIcon(QMessageBox.Warning)
             box.setText(f"{route}\n\nFlight rejected: {outcome['reason']}")
             rejected = (self.db.get_pilot() or {}).get("total_rejected")
-            details.append("\nNothing was logged and no hours were added."
+            details.append("\nIt's in your logbook as rejected - no hours were added."
                            + (f" Rejected flights: {rejected}." if rejected is not None else ""))
         box.setInformativeText("\n".join(details))
+        debrief_button = box.addButton("View Debrief", QMessageBox.ActionRole)
+        box.addButton("Close", QMessageBox.AcceptRole)
         box.exec()
+        if box.clickedButton() is debrief_button:
+            self._open_debrief(outcome.get("flight_id"))
 
     def _refresh_after_flight(self):
         """A flight was submitted: update the header, logbook, fleet and

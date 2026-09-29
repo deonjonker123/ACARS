@@ -29,13 +29,14 @@ from PySide6.QtGui import QPixmap, QFont
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ui.theme import PALETTE, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
+from ui.theme import PALETTE, GRADE_COLORS, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
 from core.pilot import PilotProgress
 from version import APP_VERSION
 from core.paths import APP_NAME
 from core.updates import check_for_update
 from ui.about_dialog import AboutDialog
 from ui.icons import make_icon, NAV_ICONS
+from core.landing_grade import letter_for
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
@@ -54,7 +55,7 @@ def _check_for_update_in_background(notifier):
         try:
             notifier.found.emit(check_for_update(APP_VERSION))
         except RuntimeError:
-            pass    # the window was already closed
+            pass
     threading.Thread(target=run, name="UpdateCheck", daemon=True).start()
 
 class MainWindow(QMainWindow):
@@ -129,6 +130,7 @@ class MainWindow(QMainWindow):
 
         self.nav_items = [
             ("home", "Dashboard"),
+            ("profile", "Profile"),
             ("live_map", "Live Map"),
             ("flight_plan", "Flight Plan"),
             ("logbook", "Logbook"),
@@ -200,7 +202,7 @@ class MainWindow(QMainWindow):
         now = datetime.now(timezone.utc)
         self.utc_clock.setText(
             f'<span style="color:{PALETTE["text_primary"]};">{now:%H:%M:%S}</span>'
-            f'&nbsp;<span style="color:{PALETTE["text_muted"]};">UTC</span>'
+            f'&nbsp;<span style="color:{PALETTE["text_muted"]};">Z</span>'
         )
 
     def _show_update(self, release):
@@ -355,10 +357,12 @@ class MainWindow(QMainWindow):
         row.addWidget(self._vdivider())
 
         avg_landing = self.pilot_data.get("average_landing_rate")
-        landing = self._stat_block(
-            f"{avg_landing:,.0f} fpm" if avg_landing is not None else "—",
-            "AVG LANDING",
-        )
+        avg_letter = letter_for(self.pilot_data.get("average_landing_grade"))
+        landing_text = f"{avg_landing:,.0f} fpm" if avg_landing is not None else "—"
+        if avg_letter:
+            landing_text = (f'<span style="color:{GRADE_COLORS[avg_letter]};">{avg_letter}</span>'
+                            f' · {landing_text}')
+        landing = self._stat_block(landing_text, "AVG LANDING")
         row.addWidget(landing)
         row.addWidget(self._vdivider())
 
@@ -417,6 +421,13 @@ class MainWindow(QMainWindow):
         each other directly."""
         entry = self._page_titles.get(key)
         return entry[2] if entry else None
+
+    def open_debrief(self, flight_id, return_to="logbook"):
+        """Shows one flight's debrief (the hidden "debrief" page); its Back
+        button returns to the page `return_to`."""
+        page = self.get_page("debrief")
+        if page is not None and page.show_flight(flight_id, return_to=return_to):
+            self.navigate_to("debrief")
 
     def navigate_to(self, key):
         if key not in self._page_titles:
