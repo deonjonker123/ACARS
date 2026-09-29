@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
     QMessageBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
-from PySide6.QtCore import QTimer, Qt, QThread, Signal
+from PySide6.QtCore import QTimer, Qt, QThread, Signal, QSettings
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -261,6 +261,10 @@ class HomePage(QWidget):
         self.aircraft_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.aircraft_combo.setMinimumContentsLength(12)
         dispatch_row.addWidget(self.aircraft_combo, stretch=1)
+        self.network_combo = QComboBox()
+        self.network_combo.setToolTip("The network you'll fly this on - VATSIM/IVAO are checked during the flight")
+        dispatch_row.addWidget(self.network_combo)
+        self._populate_networks()
 
         self.dispatch_button = QPushButton("Dispatch")
         self.dispatch_button.setCursor(Qt.PointingHandCursor)
@@ -339,11 +343,34 @@ class HomePage(QWidget):
         if self.plan is None:
             return
         try:
-            self.controller.dispatch(self.plan, self.aircraft_combo.currentData())
+            network = self.network_combo.currentData() or "OFFLINE"
+            self.controller.dispatch(self.plan, self.aircraft_combo.currentData(), network=network)
         except FlightDispatchError as e:
             QMessageBox.warning(self, "Not Dispatched", str(e))
             return
+        QSettings("Tailwind", "ACARS").setValue("last_network", network)
         self._refresh_dispatch_ui()
+
+    def _populate_networks(self):
+        """Offline / VATSIM / IVAO, with a network greyed out if its ID
+        isn't in Settings. Pre-selects the last network dispatched with."""
+        pilot = self.db.get_pilot() or {}
+        ids = {"VATSIM": pilot.get("vatsim_id"), "IVAO": pilot.get("ivao_id")}
+        wanted = self.network_combo.currentData() or QSettings("Tailwind", "ACARS").value("last_network", "OFFLINE")
+
+        self.network_combo.clear()
+        self.network_combo.addItem("Offline", "OFFLINE")
+        for network in ("VATSIM", "IVAO"):
+            self.network_combo.addItem(network, network)
+            if not ids[network]:
+                item = self.network_combo.model().item(self.network_combo.count() - 1)
+                item.setEnabled(False)
+                item.setToolTip(f"Add your {network} ID in Settings first")
+
+        index = self.network_combo.findData(wanted)
+        if index < 0 or not self.network_combo.model().item(index).isEnabled():
+            index = 0
+        self.network_combo.setCurrentIndex(index)
 
     def _cancel_flight(self):
         in_progress = (self.controller.tracker.state == "BLOCK"
@@ -376,6 +403,7 @@ class HomePage(QWidget):
         self.plan_summary.set_plan(self.plan, dispatch)
         self.fetch_button.setEnabled(not dispatched and not self._fetching)
         self.aircraft_combo.setEnabled(self.plan is not None and not dispatched)
+        self.network_combo.setEnabled(self.plan is not None and not dispatched)
         self.dispatch_button.setEnabled(self.plan is not None and not dispatched)
         self.dispatch_button.setVisible(not dispatched)
         self.cancel_button.setVisible(dispatched)
@@ -383,6 +411,7 @@ class HomePage(QWidget):
         if dispatched:
             self.dispatch_status.setText(
                 f"DISPATCHED  ·  {dispatch['designation']} {dispatch['registration']}"
+                f"  ·  {dispatch.get('network') or 'OFFLINE'}"
             )
             self.dispatch_status.setStyleSheet(f"color: {PALETTE['positive']};")
         else:
@@ -414,6 +443,8 @@ class HomePage(QWidget):
         super().showEvent(event)
         if self.plan is not None and self.controller.dispatch_info is None:
             self._populate_aircraft()
+        if self.controller.dispatch_info is None:
+            self._populate_networks()
         self.refresh_history()
 
     def _build_zone2(self):
@@ -725,11 +756,17 @@ class HomePage(QWidget):
         position (skipped if one is still running or there's no position yet)."""
         if self._network_worker is not None and self._network_worker.isRunning():
             return
-        pilot = self.db.get_pilot() or {}
-        ids = {"VATSIM": pilot.get("vatsim_id"), "IVAO": pilot.get("ivao_id")}
-        if not any(ids.values()):
-            self._set_network_label("Network: Offline (no VATSIM/IVAO ID in Settings)", PALETTE["text_muted"])
+        declared = self.controller.declared_network()
+        if declared == "OFFLINE":
+            self._set_network_label("Network: Offline", PALETTE["text_secondary"])
             return
+        pilot = self.db.get_pilot() or {}
+        user_id = pilot.get("vatsim_id" if declared == "VATSIM" else "ivao_id")
+        if not user_id:
+            self._set_network_label(f"Network: no {declared} ID in Settings - will log Offline",
+                                    PALETTE["warning"])
+            return
+        ids = {declared: user_id}
         if self._last_position is None:
             return
         self._network_worker = _NetworkWorker(ids, *self._last_position)
@@ -749,7 +786,8 @@ class HomePage(QWidget):
             reasons = "; ".join(result["errors"].values())
             self._set_network_label(f"Network: couldn't check ({reasons})", PALETTE["warning"])
         else:
-            self._set_network_label("Network: Offline", PALETTE["text_secondary"])
+            declared = self.controller.declared_network()
+            self._set_network_label(f"Network: not seen on {declared}", PALETTE["warning"])
 
     def _set_arming(self, text):
         if not text:

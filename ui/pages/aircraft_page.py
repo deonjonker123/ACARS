@@ -43,10 +43,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from ui.theme import PALETTE, font, font_label, WEIGHT_MEDIUM
 from core.db import VALID_CATEGORIES
 from core.pilot import PilotProgress, load_fleet_data
+from core.paths import USER_DATA_DIR, AIRCRAFT_IMAGE_DIR
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
-_AIRCRAFT_IMAGE_DIR = os.path.join(_ASSETS_DIR, "aircraft")
+_IMAGE_BASE_DIR = USER_DATA_DIR
+_AIRCRAFT_IMAGE_DIR = AIRCRAFT_IMAGE_DIR
 
 CARD_WIDTH = 260
 IMAGE_HEIGHT = 146
@@ -96,7 +96,7 @@ def _absolute_image_path(image_path):
     or None if there's no image or the file has gone missing."""
     if not image_path:
         return None
-    full = os.path.join(_ASSETS_DIR, image_path)
+    full = os.path.join(_IMAGE_BASE_DIR, image_path)
     return full if os.path.exists(full) else None
 
 

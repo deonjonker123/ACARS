@@ -30,6 +30,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ui.theme import PALETTE, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
 from core.pilot import PilotProgress
 from version import APP_VERSION
+from core.paths import APP_NAME
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
@@ -40,7 +41,7 @@ SIDEBAR_WIDTH = 220
 class MainWindow(QMainWindow):
     def __init__(self, pilot_data=None):
         super().__init__()
-        self.setWindowTitle("ACARS")
+        self.setWindowTitle(APP_NAME)
         self.resize(1400, 860)
 
         self.pilot_data = pilot_data or {}
@@ -265,6 +266,21 @@ class MainWindow(QMainWindow):
             "HOURS",
         )
         row.addWidget(hours)
+        row.addWidget(self._vdivider())
+
+        flights = self._stat_block(
+            f"{self.pilot_data.get('total_completed') or 0:,}",
+            "FLIGHTS",
+        )
+        row.addWidget(flights)
+        row.addWidget(self._vdivider())
+
+        avg_landing = self.pilot_data.get("average_landing_rate")
+        landing = self._stat_block(
+            f"{avg_landing:,.0f} fpm" if avg_landing is not None else "—",
+            "AVG LANDING",
+        )
+        row.addWidget(landing)
         row.addWidget(self._vdivider())
 
         location = self._stat_block(

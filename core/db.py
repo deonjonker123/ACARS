@@ -43,11 +43,9 @@ import re
 from contextlib import contextmanager
 
 from core.pilot import PilotProgress, load_fleet_data
+from core.paths import DB_PATH
 
-_DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data", "acars.db"
-)
+_DB_PATH = DB_PATH
 
 VALID_NETWORKS = {"VATSIM", "IVAO", "OFFLINE"}
 VALID_CATEGORIES = ("prop", "airliner", "bizjet", "cargo")

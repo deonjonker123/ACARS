@@ -71,14 +71,27 @@ class LogbookPage(QWidget):
         super().__init__()
         self.db = db
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(32, 24, 32, 24)
 
+        card = QWidget()
+        card.setObjectName("Card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+        outer.addWidget(card)
+
+        title_row = QHBoxLayout()
+        title = QLabel("LOGBOOK")
+        title.setObjectName("SectionLabel")
+        title.setFont(font_label(10))
+        title_row.addWidget(title)
+        title_row.addStretch()
         self.summary_label = QLabel("")
-        self.summary_label.setFont(font_label(10))
+        self.summary_label.setFont(font_label(9))
         self.summary_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        layout.addWidget(self.summary_label)
+        title_row.addWidget(self.summary_label)
+        layout.addLayout(title_row)
 
         self.table = QTableWidget()
         self.table.setColumnCount(len(COLUMNS))

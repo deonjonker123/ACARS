@@ -30,16 +30,18 @@ Flight rules (a flight only exists because of a dispatched flight plan):
   - cancel_dispatch() stops tracking and clears the plan - no penalty.
   - The sim's own tail number (ATC ID) is not checked; the flight is
     logged against the dispatched airframe.
-  - Network: the UI runs core.networks.check_online() in the background
-    about once a minute and hands each result to record_network_check().
-    Only checks made during block time count. The flight is logged as
-    VATSIM or IVAO if the pilot was online on it in at least
-    NETWORK_ONLINE_SHARE of those checks, otherwise OFFLINE. Checks where
-    a feed couldn't be reached (and nothing was found) don't count.
+  - Network: the pilot declares it at dispatch (OFFLINE, VATSIM or IVAO).
+    For VATSIM/IVAO the UI runs core.networks.check_online() for that
+    network in the background about once a minute and hands each result
+    to record_network_check(). Only checks made during block time count.
+    The flight is logged as the declared network if the pilot was seen
+    online on it in at least NETWORK_ONLINE_SHARE of those checks,
+    otherwise OFFLINE (also if it could never be checked). Checks where a
+    feed couldn't be reached (and nothing was found) don't count.
 
 Usage:
     controller = FlightSessionController()
-    controller.dispatch(plan, "N104TW")       # raises FlightDispatchError
+    controller.dispatch(plan, "N104TW", network="VATSIM")   # raises FlightDispatchError
     ...
     result = controller.tick()    # call this once per poll interval
     result["connected"]           # bool - sim handshake succeeded
@@ -66,7 +68,7 @@ from datetime import datetime
 
 from connectors.auto import AutoConnector
 from core.flight_state import FlightStateTracker
-from core.db import FlightDatabase, normalize_registration
+from core.db import FlightDatabase, normalize_registration, VALID_NETWORKS
 
 ARMING_RADIUS_NM = 5.0
 HARD_LANDING_LIMIT_FPM = -800
@@ -123,8 +125,9 @@ class FlightSessionController:
         self.pending_flight_event = None
         self._reset_network_checks()
 
-    def dispatch(self, plan, registration):
-        """Locks in a flight plan and the fleet airframe to fly it in."""
+    def dispatch(self, plan, registration, network="OFFLINE"):
+        """Locks in a flight plan, the fleet airframe to fly it in and the
+        network the pilot says they'll fly it on."""
         if self.tracker.state == "BLOCK":
             raise FlightDispatchError("A flight is in progress. Cancel it before dispatching a new one.")
         if self.pending_flight_event is not None:
@@ -133,6 +136,9 @@ class FlightSessionController:
         registration = normalize_registration(registration)
         if not registration:
             raise FlightDispatchError("Pick an aircraft from your fleet.")
+        network = (network or "OFFLINE").upper()
+        if network not in VALID_NETWORKS:
+            raise FlightDispatchError(f"Unknown network: {network}.")
         reason = self.db.save_block_reason(registration)
         if reason is not None:
             raise FlightDispatchError(reason)
@@ -142,6 +148,7 @@ class FlightSessionController:
             "plan": plan,
             "registration": registration,
             "designation": aircraft["designation"],
+            "network": network,
         }
         self.tracker.reset()
         self._reset_network_checks()
@@ -174,12 +181,17 @@ class FlightSessionController:
         if network is not None:
             self._network_online[network] = self._network_online.get(network, 0) + 1
 
+    def declared_network(self):
+        """The network chosen at dispatch ("OFFLINE" if none)."""
+        return (self.dispatch_info or {}).get("network") or "OFFLINE"
+
     def network_for_log(self):
-        """"VATSIM", "IVAO" or "OFFLINE" for the flight so far."""
-        if not self._network_checks or not self._network_online:
+        """The declared network if the checks confirm it, else "OFFLINE"."""
+        declared = self.declared_network()
+        if declared == "OFFLINE" or not self._network_checks:
             return "OFFLINE"
-        network, count = max(self._network_online.items(), key=lambda item: item[1])
-        return network if count / self._network_checks >= NETWORK_ONLINE_SHARE else "OFFLINE"
+        online = self._network_online.get(declared, 0)
+        return declared if online / self._network_checks >= NETWORK_ONLINE_SHARE else "OFFLINE"
 
     def _arming_status(self, data):
         """Returns (can_start_block, user-readable status or None)."""
@@ -347,6 +359,7 @@ class FlightSessionController:
         log_data["flight_plan"] = _plan_for_log(plan)
         network = self.network_for_log()
         log_data["network_checks"] = {
+            "declared": self.declared_network(),
             "checks": self._network_checks,
             "online": dict(self._network_online),
             "logged_as": network,
@@ -437,8 +450,8 @@ if __name__ == "__main__":
          tick(33.6757, -117.8682, True, 1.0, -150), tick(33.6757, -117.8682, False, 1.0)])
     print("  saved flight id:", controller.record_pending_flight())
 
-    print("\n3b) KLAX -> KSMO online on VATSIM for 3 of 4 checks (one feed timeout ignored) - VATSIM:")
-    controller.dispatch(plan, "N104TW")
+    print("\n3b) Declared VATSIM, online for 3 of 4 checks (one feed timeout ignored) - VATSIM:")
+    controller.dispatch(plan, "N104TW", network="VATSIM")
     fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, 500)])
     for check in ({"network": "VATSIM", "errors": {}}, {"network": "VATSIM", "errors": {}},
                   {"network": None, "errors": {}}, {"network": "VATSIM", "errors": {}},
@@ -447,6 +460,23 @@ if __name__ == "__main__":
     print("  network so far:", controller.network_for_log())
     fly([tick(34.0158, -118.4513, True, 1.0, -120), tick(34.0158, -118.4513, False, 1.0)])
     controller.record_network_check({"network": None, "errors": {}})   # after block end - ignored
+    print("  saved flight id:", controller.record_pending_flight())
+
+    print("\n3c) Declared IVAO but only seen on VATSIM - OFFLINE:")
+    controller.dispatch(plan, "N104TW", network="IVAO")
+    fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, 500)])
+    for _ in range(3):
+        controller.record_network_check({"network": "VATSIM", "errors": {}})
+    fly([tick(34.0158, -118.4513, True, 1.0, -120), tick(34.0158, -118.4513, False, 1.0)])
+    print("  saved flight id:", controller.record_pending_flight())
+
+    print("\n3d) Declared VATSIM, online for 1 of 3 checks - OFFLINE:")
+    controller.dispatch(plan, "N104TW", network="VATSIM")
+    fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, 500)])
+    for check in ({"network": "VATSIM", "errors": {}}, {"network": None, "errors": {}},
+                  {"network": None, "errors": {}}):
+        controller.record_network_check(check)
+    fly([tick(34.0158, -118.4513, True, 1.0, -120), tick(34.0158, -118.4513, False, 1.0)])
     print("  saved flight id:", controller.record_pending_flight())
 
     print("\n4) KLAX -> KBUR (not planned) - rejected:")
