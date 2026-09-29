@@ -1,0 +1,86 @@
+Tailwind ACARS - notices
+========================
+
+Tailwind ACARS
+Copyright (C) 2026 deonjonker123 (https://github.com/deonjonker123)
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, version 3 (see LICENSE). It comes WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.
+
+Source code: https://github.com/deonjonker123/ACARS
+
+
+Third-party software and data
+-----------------------------
+
+Tailwind ACARS is built with, bundles or uses the following. Each remains
+under its own licence; the full licence texts are available at the links
+given.
+
+1. Qt for Python (PySide6) and the Qt libraries, including Qt WebEngine
+   (The Qt Company Ltd. and other contributors)
+   Licence: GNU Lesser General Public License v3.0 (LGPL-3.0)
+   https://www.qt.io/licensing  -  source: https://code.qt.io
+   Qt is used unmodified and linked dynamically: its libraries are the
+   separate files in the "_internal" folder next to Tailwind.exe and can be
+   replaced with other compatible builds. Qt WebEngine contains Chromium,
+   which is made of many open-source components under their own licences
+   (BSD-style and others); see https://doc.qt.io/qt-6/qtwebengine-licensing.html
+
+2. Python-SimConnect (Anthony Pray and contributors)
+   Licence: GNU Affero General Public License v3.0 (AGPL-3.0)
+   https://github.com/odwdinc/Python-SimConnect
+   Includes SimConnect.dll from the Microsoft Flight Simulator SDK
+   (Microsoft Corporation), redistributed as part of that package.
+
+3. Python (Python Software Foundation)
+   Licence: Python Software Foundation License Version 2
+   https://docs.python.org/3/license.html
+
+4. PyInstaller bootloader (PyInstaller Development Team)
+   Licence: GPL-2.0 with the PyInstaller bootloader exception, which allows
+   it to be distributed as part of an application under any licence.
+   https://pyinstaller.org/en/stable/license.html
+
+5. MapLibre GL JS (MapLibre contributors), loaded at runtime from unpkg.com
+   Licence: BSD 3-Clause
+   https://github.com/maplibre/maplibre-gl-js
+
+6. Map data and tiles (loaded at runtime, not bundled)
+   - Map data (c) OpenStreetMap contributors, available under the Open
+     Database License (ODbL) - https://www.openstreetmap.org/copyright
+   - OpenFreeMap (https://openfreemap.org) and OpenMapTiles
+     (https://openmaptiles.org) - map tiles and style
+   - CARTO basemaps (c) CARTO (https://carto.com/attributions) - backup tiles
+   Attribution is shown on the maps inside the app.
+
+7. Roboto font (Google)
+   Licence: Apache License 2.0
+   https://github.com/googlefonts/roboto
+
+8. EB Garamond font (Georg Duffner, Octavio Pardo)
+   Licence: SIL Open Font License 1.1
+   https://github.com/octaviopardo/EBGaramond12
+
+9. Material Design "flight" icon (Google), drawn as the aircraft marker on
+   the Live Map
+   Licence: Apache License 2.0
+   https://github.com/google/material-design-icons
+
+10. OurAirports airport data (data/airports.csv)
+    Released into the public domain - https://ourairports.com/data/
+
+Online services used (not bundled; each user's own account/IDs)
+---------------------------------------------------------------
+- SimBrief (Navigraph) - flight plans, fetched with the pilot's own
+  SimBrief Pilot ID. https://www.simbrief.com
+- VATSIM and IVAO public data feeds - used only to check whether the pilot
+  is connected. https://vatsim.net  -  https://ivao.aero
+- GitHub - checking for new releases of this app.
+
+Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their
+respective owners. Tailwind ACARS is not affiliated with or endorsed by
+Microsoft, Lockheed Martin, Laminar Research, Navigraph, VATSIM or IVAO.

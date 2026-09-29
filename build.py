@@ -17,15 +17,19 @@ What it does:
      a single-file .exe would unpack ~400 MB of Qt on every launch), with
      the read-only files bundled: assets/ (except uploaded aircraft photos)
      and data/fleet_and_ranks.json + data/airports.csv.
+  4. Builds the installer dist/Tailwind-Setup-<version>.exe with Inno Setup.
 
 Your logbook, fleet, photos and log are NOT part of the build - they live
 in %LOCALAPPDATA%\\Tailwind ACARS (core/paths.py), so rebuilding never
 touches them. Each build replaces dist/Tailwind completely.
 """
 
+import glob
 import importlib.util
 import os
+import shutil
 import struct
+import subprocess
 import sys
 
 from version import APP_VERSION
@@ -40,6 +44,13 @@ VERSION_FILE = os.path.join(BUILD_DIR, "version_info.txt")
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 ASSETS_SKIP = {"aircraft"}
 DATA_FILES = ("fleet_and_ranks.json", "airports.csv")
+ROOT_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.txt")
+INSTALLER_SCRIPT = os.path.join(PROJECT_DIR, "installer", "tailwind.iss")
+ISCC_KNOWN_PATHS = (
+    r"C:\Program Files\Inno Setup 7\ISCC.exe",
+    r"C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
+    r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+)
 
 
 def pack_ico(images):
@@ -136,11 +147,67 @@ def pyinstaller_args():
             sys.exit(f"Missing {source} - it has to be bundled with the app.")
         args += add_data(source, "data")
 
+    for name in ROOT_FILES:
+        source = os.path.join(PROJECT_DIR, name)
+        if not os.path.exists(source):
+            sys.exit(f"Missing {source} - it has to be bundled with the app.")
+        args += add_data(source, ".")
+
     if importlib.util.find_spec("SimConnect") is not None:
         args += ["--collect-all", "SimConnect"]
     else:
         print("  note:     SimConnect library not installed - the build will support X-Plane only")
     return args
+
+
+def find_iscc():
+    """Inno Setup's command-line compiler (any version), or None if it isn't installed."""
+    for path in ISCC_KNOWN_PATHS:
+        if os.path.exists(path):
+            return path
+
+    override = os.environ.get("ISCC")
+    if override and os.path.exists(override):
+        return override
+
+    found = shutil.which("ISCC")
+    if found:
+        return found
+
+    bases = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs"),
+        os.environ.get("ProgramFiles", ""),
+        os.environ.get("ProgramFiles(x86)", ""),
+        os.environ.get("ProgramW6432", ""),
+    ]
+    for base in bases:
+        if base:
+            matches = sorted(glob.glob(os.path.join(base, "Inno Setup*", "ISCC.exe")), reverse=True)
+            if matches:
+                return matches[0]
+    return None
+
+
+def build_installer():
+    """dist/Tailwind-Setup-<version>.exe from installer/tailwind.iss, if Inno
+    Setup is installed. Returns its path, or None if skipped."""
+    iscc = find_iscc()
+    if iscc is None:
+        print("\n  note:     Inno Setup not found - installer skipped "
+              "(install it from https://jrsoftware.org/isdl.php to get one)")
+        return None
+    print(f"\nBuilding the installer with {iscc}")
+    result = subprocess.run([
+        iscc,
+        f"/DAppVersion={APP_VERSION}",
+        f"/DProjectDir={PROJECT_DIR}",
+        f"/DSourceDir={os.path.join(DIST_DIR, APP_NAME)}",
+        f"/DOutputDir={DIST_DIR}",
+        INSTALLER_SCRIPT,
+    ])
+    if result.returncode != 0:
+        sys.exit("The installer build failed - see the Inno Setup output above.")
+    return os.path.join(DIST_DIR, f"{APP_NAME}-Setup-{APP_VERSION}.exe")
 
 
 def main():
@@ -162,6 +229,10 @@ def main():
     print(f"\nDone: {exe}")
     print(f"      folder size {size_mb:,.0f} MB - copy or shortcut the whole '{APP_NAME}' folder, "
           f"not just the .exe.")
+
+    installer = build_installer()
+    if installer:
+        print(f"\nInstaller: {installer}")
 
 
 if __name__ == "__main__":

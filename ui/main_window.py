@@ -17,12 +17,13 @@ Usage:
 
 import os
 import sys
+import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStackedWidget, QFrame, QProgressBar
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, Signal
 from PySide6.QtGui import QPixmap, QFont
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,12 +32,27 @@ from ui.theme import PALETTE, load_fonts, font, font_heading, font_label, garamo
 from core.pilot import PilotProgress
 from version import APP_VERSION
 from core.paths import APP_NAME
+from core.updates import check_for_update
+from ui.about_dialog import AboutDialog
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 
 SIDEBAR_WIDTH = 220
 
+class _UpdateNotifier(QObject):
+    """Carries the result of the background update check (core/updates.py)
+    back to the UI thread: the release dict, or None if nothing newer."""
+    found = Signal(object)
+
+
+def _check_for_update_in_background(notifier):
+    def run():
+        try:
+            notifier.found.emit(check_for_update(APP_VERSION))
+        except RuntimeError:
+            pass    # the window was already closed
+    threading.Thread(target=run, name="UpdateCheck", daemon=True).start()
 
 class MainWindow(QMainWindow):
     def __init__(self, pilot_data=None):
@@ -68,6 +84,10 @@ class MainWindow(QMainWindow):
         right_container = QWidget()
         right_container.setLayout(right_side)
         root_layout.addWidget(right_container)
+
+        self._update_notifier = _UpdateNotifier(self)
+        self._update_notifier.found.connect(self._show_update)
+        _check_for_update_in_background(self._update_notifier)
 
     def _build_sidebar(self):
         sidebar = QWidget()
@@ -128,13 +148,38 @@ class MainWindow(QMainWindow):
         self._nav_buttons["settings"] = settings_btn
 
         layout.addSpacing(8)
-        version_label = QLabel(f"v{APP_VERSION}")
-        version_label.setFont(font_label(8))
-        version_label.setStyleSheet(f"color: {PALETTE['text_muted']};")
-        version_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(version_label)
+        version_button = QPushButton(f"v{APP_VERSION}")
+        version_button.setFont(font_label(8))
+        version_button.setCursor(Qt.PointingHandCursor)
+        version_button.setToolTip(f"About {APP_NAME}")
+        version_button.setStyleSheet(f"""
+                QPushButton {{ background: transparent; border: none; padding: 0;
+                               color: {PALETTE['text_muted']}; }}
+                QPushButton:hover {{ color: {PALETTE['accent']}; }}
+            """)
+        version_button.clicked.connect(lambda checked=False: AboutDialog(self).exec())
+        layout.addWidget(version_button, alignment=Qt.AlignCenter)
+
+        self.update_label = QLabel("")
+        self.update_label.setFont(font_label(8))
+        self.update_label.setAlignment(Qt.AlignCenter)
+        self.update_label.setOpenExternalLinks(True)
+        self.update_label.setVisible(False)
+        layout.addWidget(self.update_label)
 
         return sidebar
+
+    def _show_update(self, release):
+        """Shows the "Update available" link under the version, if the
+        background check found a newer release."""
+        if not release:
+            return
+        self.update_label.setText(
+            f'<a href="{release["url"]}" style="color:{PALETTE["accent"]}; text-decoration:none;">'
+            f'Update available: v{release["version"]}</a>'
+        )
+        self.update_label.setToolTip("Opens the release page to download it")
+        self.update_label.setVisible(True)
 
     def _build_header(self):
         header = QWidget()
