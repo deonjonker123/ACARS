@@ -6,4 +6,4 @@ of the sidebar (ui/main_window.py). Bump the last digit for fixes, the
 middle one for new features: major.minor.patch.
 """
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"

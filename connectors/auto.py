@@ -36,6 +36,7 @@ Usage:
 import time
 
 from connectors.xplane import XPlaneConnector
+from connectors.fsuipc import FSUIPCConnector
 
 NO_DATA_DROP_S = 10.0
 SEARCHING = "Searching for a running sim..."
@@ -44,6 +45,7 @@ SEARCHING = "Searching for a running sim..."
 class AutoConnector:
     def __init__(self):
         self._xplane = XPlaneConnector()
+        self._fsuipc = FSUIPCConnector()
         self._msfs = None
         self._msfs_unavailable = None
         self._active = None
@@ -71,7 +73,23 @@ class AutoConnector:
                 self._use(msfs)
                 return
 
-        raise ConnectionError("No sim found - looking for MSFS / P3D and X-Plane.")
+            if self._simconnect_ruled_out(msfs):
+                try:
+                    self._fsuipc.connect()
+                except Exception:
+                    self._quietly_disconnect(self._fsuipc)
+                else:
+                    self._use(self._fsuipc)
+                    return
+
+            raise ConnectionError("No sim found - looking for MSFS, P3D / FSX and X-Plane.")
+
+        @staticmethod
+        def _simconnect_ruled_out(msfs):
+            """FSUIPC is only tried once SimConnect has been checked and can't be
+            used (or isn't installed), so MSFS - which can run FSUIPC7 too -
+            still connects through SimConnect."""
+            return msfs is None or msfs.simconnect_check not in (None, "open")
 
     def read(self):
         if self._active is None:

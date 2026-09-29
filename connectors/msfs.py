@@ -28,6 +28,7 @@ import threading
 import time
 
 from SimConnect import SimConnect, AircraftRequests
+from connectors.simconnect_probe import SimConnectProbe
 
 
 SIMVARS = {
@@ -193,9 +194,17 @@ class MSFSConnector:
         self._sm = None
         self._aq = None
         self._sampler = None
+        self._probe = SimConnectProbe()
+
+    @property
+    def simconnect_check(self):
+        """The latest SimConnect check result - see connectors/simconnect_probe.py."""
+        return self._probe.last_result
 
     def connect(self):
         """Establish the SimConnect connection. Raises if the sim isn't reachable."""
+        if not self._probe.check():
+            raise ConnectionError(self._probe.status)
         self._sm = SimConnect()
         self._aq = AircraftRequests(self._sm, _time=1000)
         self._sampler = _TouchdownSampler(self._sm)
