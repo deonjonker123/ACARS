@@ -6,10 +6,15 @@ core/flight_session.py just uses this one.
 
 While no sim is connected, each connect() call (the app retries every
 poll) looks for:
-  1. MSFS / P3D - tries to open SimConnect (fails fast if neither is running)
-  2. X-Plane    - (re)sends its UDP subscriptions and checks whether it has
+  1. X-Plane    - (re)sends its UDP subscriptions and checks whether it has
                   answered; never waits for it
-The first one found is used; if both are running, MSFS / P3D wins.
+  2. MSFS / P3D - tries to open SimConnect (fails fast if neither is running)
+The first one found is used.
+
+Opening SimConnect isn't proof MSFS / P3D is running - other software can
+accept the connection too, and then no data ever comes. So until the
+SimConnect connection has sent real data, X-Plane is still checked on
+every read() and takes over as soon as it answers.
 
 When the connected sim goes away the connector drops it and goes back to
 searching, so switching sims needs no app restart:
@@ -43,6 +48,7 @@ class AutoConnector:
         self._msfs_unavailable = None
         self._active = None
         self._last_data = None
+        self._msfs_proven = False
 
     @property
     def SIM_NAME(self):
@@ -52,6 +58,9 @@ class AutoConnector:
         if self._active is not None:
             return
 
+        if self._try_xplane():
+            return
+
         msfs = self._msfs_connector()
         if msfs is not None:
             try:
@@ -59,17 +68,8 @@ class AutoConnector:
             except Exception:
                 self._quietly_disconnect(msfs)
             else:
-                self._quietly_disconnect(self._xplane)
                 self._use(msfs)
                 return
-
-        try:
-            self._xplane.connect()
-        except ConnectionError:
-            pass
-        else:
-            self._use(self._xplane)
-            return
 
         raise ConnectionError("No sim found - looking for MSFS / P3D and X-Plane.")
 
@@ -85,10 +85,26 @@ class AutoConnector:
         now = time.monotonic()
         if data is not None:
             self._last_data = now
+            if self._active is self._msfs:
+                self._msfs_proven = True
+        elif self._active is self._msfs and not self._msfs_proven and self._try_xplane():
+            return self._xplane.read()
         elif self._active is self._msfs and now - self._last_data > NO_DATA_DROP_S:
             self._drop()
             raise ConnectionError("No data from MSFS / P3D - looking for a sim again.")
         return data
+
+    def _try_xplane(self):
+        """Switches to X-Plane if it's answering (never waits). A SimConnect
+        connection that hasn't sent any data yet gives way to it."""
+        try:
+            self._xplane.connect()
+        except ConnectionError:
+            return False
+        if self._active is not None and self._active is not self._xplane:
+            self._quietly_disconnect(self._active)
+        self._use(self._xplane)
+        return True
 
     def disconnect(self):
         if self._active is not None:
@@ -114,6 +130,7 @@ class AutoConnector:
     def _use(self, connector):
         self._active = connector
         self._last_data = time.monotonic()
+        self._msfs_proven = False
 
     def _drop(self):
         self._quietly_disconnect(self._active)
