@@ -29,6 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui.theme import PALETTE, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
 from core.pilot import PilotProgress
+from version import APP_VERSION
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
@@ -93,6 +94,7 @@ class MainWindow(QMainWindow):
 
         self.nav_items = [
             ("home", "Dashboard"),
+            ("live_map", "Live Map"),
             ("flight_plan", "Flight Plan"),
             ("logbook", "Logbook"),
             ("aircraft", "Aircraft"),
@@ -123,6 +125,13 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(lambda checked=False: self.navigate_to("settings"))
         layout.addWidget(settings_btn)
         self._nav_buttons["settings"] = settings_btn
+
+        layout.addSpacing(8)
+        version_label = QLabel(f"v{APP_VERSION}")
+        version_label.setFont(font_label(8))
+        version_label.setStyleSheet(f"color: {PALETTE['text_muted']};")
+        version_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(version_label)
 
         return sidebar
 
@@ -364,6 +373,7 @@ if __name__ == "__main__":
         return w
 
     window.add_page("home", "Dashboard", "Virtual Aviation Gumph", placeholder("Home page goes here"))
+    window.add_page("live_map", "Live Map", "Active Flight", placeholder("Live Map page goes here"))
     window.add_page("flight_plan", "Flight Plan", "Dispatched Flight", placeholder("Flight Plan page goes here"))
     window.add_page("logbook", "Logbook", "Flight History", placeholder("Logbook page goes here"))
     window.add_page("aircraft", "Aircraft", "Your Fleet", placeholder("Aircraft page goes here"))

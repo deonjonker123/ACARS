@@ -20,6 +20,13 @@ Usage:
     airport = lookup.find_nearest(34.0522, -118.2437)
     # -> {"icao": "KLAX", "name": "Los Angeles Intl", "lat": ..., "lon": ..., "type": "large_airport"}
     # or None if nothing found within max_radius_nm
+
+Looking airports up by code instead (e.g. to put old logbook flights, which
+only stored ICAO codes, on the map) doesn't need the grid index - one pass
+over the CSV for just the codes asked for, nothing kept in memory:
+    found = find_airports({"KLAX", "KSMO"})
+    # -> {"KLAX": {"icao": "KLAX", "name": ..., "lat": ..., "lon": ...}, "KSMO": {...}}
+    # codes that aren't in the CSV are simply missing from the result
 """
 
 import csv
@@ -43,6 +50,41 @@ def _haversine_nm(lat1, lon1, lat2, lon2):
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
     return 2 * r_nm * math.asin(math.sqrt(a))
+
+
+def _row_icao(row):
+    """The code an airport is known by: gps_code, falling back to ident."""
+    return (row.get("gps_code") or row.get("ident") or "").strip()
+
+
+def find_airports(icaos, csv_path=_DEFAULT_CSV_PATH):
+    """
+    Looks up airports by ICAO code with a single pass over the CSV. Returns
+    {ICAO: {"icao", "name", "lat", "lon"}} for the codes found (same
+    matching rule and airport types as AirportLookup). Returns {} if the
+    CSV isn't there or no codes were asked for.
+    """
+    wanted = {str(code).strip().upper() for code in icaos or () if code and str(code).strip()}
+    if not wanted or not os.path.exists(csv_path):
+        return {}
+
+    found = {}
+    with open(csv_path, "r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if row.get("type") not in _VALID_TYPES:
+                continue
+            icao = _row_icao(row).upper()
+            if icao not in wanted or icao in found:
+                continue
+            try:
+                lat = float(row["latitude_deg"])
+                lon = float(row["longitude_deg"])
+            except (KeyError, ValueError):
+                continue
+            found[icao] = {"icao": icao, "name": row.get("name", "").strip(), "lat": lat, "lon": lon}
+            if len(found) == len(wanted):
+                break
+    return found
 
 
 def _grid_key(lat, lon):
@@ -78,7 +120,7 @@ class AirportLookup:
                 if row.get("type") not in _VALID_TYPES:
                     continue
 
-                icao = (row.get("gps_code") or row.get("ident") or "").strip()
+                icao = _row_icao(row)
                 if not icao:
                     continue
 

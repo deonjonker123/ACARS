@@ -18,7 +18,7 @@ Usage:
     plan["ofp"]["html"]           # SimBrief's own OFP, as generated (HTML/<pre>)
     plan["weather"]["origin"]     # {"metar": str, "taf": str} - snapshot at OFP time
     plan["weights"], plan["fuel"] # numbers in plan["units"] ("kg" or "lb")
-    plan["navlog"]                # list of waypoint dicts
+    plan["navlog"]                # list of waypoint dicts (incl. "lat"/"lon")
 
 Every failure (no ID, no internet, unknown ID, malformed OFP) raises
 SimBriefError with a message that can be shown to the pilot as-is.
@@ -85,9 +85,11 @@ FUEL_KEYS = ("taxi", "enroute_burn", "contingency", "alternate_burn", "reserve",
 
 def _navlog(section):
     """OFP navlog -> list of waypoint dicts (times in seconds, fuel in
-    plan units, altitude in ft)."""
+    plan units, altitude in ft, position in decimal degrees - lat/lon are
+    None if the OFP doesn't give them). SimBrief's navlog runs from the
+    first fix after the origin up to and including the destination."""
     fixes = (section or {}).get("fix") if isinstance(section, dict) else None
-    if isinstance(fixes, dict):       # a single fix comes through as a dict, not a list
+    if isinstance(fixes, dict):
         fixes = [fixes]
     waypoints = []
     for fix in fixes or []:
@@ -97,6 +99,8 @@ def _navlog(section):
             "ident": _text(fix.get("ident")),
             "name": _text(fix.get("name")),
             "type": _text(fix.get("type")),
+            "lat": _float(fix.get("pos_lat")),
+            "lon": _float(fix.get("pos_long")),
             "airway": _text(fix.get("via_airway")),
             "altitude_ft": _int(fix.get("altitude_feet")),
             "wind_dir": _int(fix.get("wind_dir")),
@@ -113,7 +117,7 @@ def _navlog(section):
 def _airport(section):
     """OFP origin/destination/alternate section -> airport dict, or None
     if the section is missing or has no ICAO code."""
-    if isinstance(section, list):          # several alternates planned: use the first
+    if isinstance(section, list):
         section = section[0] if section else None
     if not isinstance(section, dict):
         return None
@@ -172,7 +176,7 @@ def parse_ofp(data):
 
     return {
         "ofp_id": _text(params.get("request_id")) or None,
-        "generated_at": _int(params.get("time_generated")),   # unix time
+        "generated_at": _int(params.get("time_generated")),
         "flight_number": flight_number,
         "callsign": _text(atc.get("callsign")) or flight_number,
         "origin": origin,
@@ -188,7 +192,6 @@ def parse_ofp(data):
         "pax_count": _int(weights.get("pax_count")),
         "cargo_kg": round(cargo) if cargo is not None else None,
 
-        # ---- Flight Plan page detail ----
         "units": "lb" if units.startswith("lb") else "kg",
         "ofp": {
             "html": _text(text.get("plan_html")),

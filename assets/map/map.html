@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<!--
+assets/map/map.html
+
+The map shown inside the app (ui/widgets/map_view.py loads this file into
+a QWebEngineView). Used by both the Dashboard (historical routes) and the
+Live Map page (the active flight). It only draws - it never touches the
+database or the sim. Python drives it through window.ACARS:
+
+    ACARS.setHistory(routes, {fit: true})
+        routes: [{id, dep: {icao, lat, lon}, arr: {icao, lat, lon}}, ...]
+        Drawn as great-circle arcs in the accent colour. Flights flying the
+        same airport pair share one arc. fit=true zooms to show them all.
+    ACARS.highlightFlight(id)      brighter arc + zoom to it (null clears)
+    ACARS.setLive(live)            the active flight (null removes it):
+        {lat, lon, heading,
+         flown:     [[lon, lat], ...]   recorded track, ends at the aircraft
+         remaining: [[lon, lat], ...]   aircraft -> remaining waypoints -> destination
+         popup: {pilot, dep, arr, registration, title,
+                 altitude_ft, ias_kt, remaining_nm}}
+        Hovering the plane shows the popup plus the route (flown part
+        solid, remaining part dashed); leaving it hides both.
+    ACARS.resetView()              back to the whole-world view
+
+Calls made before the map has finished loading are queued and run once it
+has. Colours come from the page URL (?accent=...&bg=...), which the widget
+fills in from ui/theme.py's PALETTE.
+
+Load state is reported through the page title (the widget listens for
+titleChanged): "acars-map:ready" once the map has been drawn for the first
+time, or "acars-map:unavailable" if MapLibre or both map styles couldn't
+be loaded.
+
+Map: MapLibre GL JS + OpenFreeMap's free dark style (no API key). If that
+style can't be loaded, CARTO's dark raster tiles are used instead. Both
+need an internet connection; without one a message is shown instead.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+    @font-face { font-family: "Roboto"; src: url("../fonts/Roboto-Regular.ttf"); font-weight: 400; }
+    @font-face { font-family: "Roboto"; src: url("../fonts/Roboto-Medium.ttf"); font-weight: 500; }
+    @font-face { font-family: "Roboto"; src: url("../fonts/Roboto-Bold.ttf"); font-weight: 700; }
+
+    html, body, #map {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: "Roboto", sans-serif;
+    }
+
+    #message {
+        display: none;
+        position: absolute;
+        inset: 0;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 16px;
+        color: var(--text-secondary);
+        font-size: 13px;
+    }
+
+    .maplibregl-popup-content {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 10px 12px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--text);
+        white-space: nowrap;
+    }
+    .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+    .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+    .maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--border); }
+    .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+    .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+    .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--border); }
+    .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--border); }
+    .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--border); }
+
+    .popup-pilot { color: var(--accent); font-weight: 500; }
+    .popup-route { color: var(--text); font-weight: 700; }
+    .popup-aircraft { color: var(--text-secondary); }
+    .popup-stats { color: var(--positive-text); }
+
+    .maplibregl-ctrl-group {
+        background: var(--panel);
+        border: 1px solid var(--border);
+    }
+    .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+    .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1) brightness(0.8); }
+    .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib.maplibregl-compact {
+        background: rgba(0, 0, 0, 0.55);
+        color: var(--text-secondary);
+    }
+    .maplibregl-ctrl-attrib a { color: var(--text-secondary); }
+    .maplibregl-ctrl-attrib-button { filter: invert(1); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="message"></div>
+
+<script>
+(function () {
+    "use strict";
+
+    const params = new URLSearchParams(window.location.search);
+    const COLORS = {
+        accent:        params.get("accent")         || "#e4a125",
+        bg:            params.get("bg")             || "#0e0e0e",
+        panel:         params.get("panel")          || "#1a1a1a",
+        border:        params.get("border")         || "#3e3d40",
+        text:          params.get("text")           || "#f5f6f6",
+        textSecondary: params.get("text_secondary") || "#6c7381",
+        positive:      params.get("positive")       || "#2d783d",
+    };
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--accent", COLORS.accent);
+    rootStyle.setProperty("--bg", COLORS.bg);
+    rootStyle.setProperty("--panel", COLORS.panel);
+    rootStyle.setProperty("--border", COLORS.border);
+    rootStyle.setProperty("--text", COLORS.text);
+    rootStyle.setProperty("--text-secondary", COLORS.textSecondary);
+    rootStyle.setProperty("--positive-text", "#4fbf68");
+
+    const WORLD_VIEW = { center: [0, 25], zoom: 1 };
+    const PRIMARY_STYLE = "https://tiles.openfreemap.org/styles/dark";
+    const FALLBACK_STYLE = {
+        version: 8,
+        sources: {
+            carto: {
+                type: "raster",
+                tiles: ["a", "b", "c", "d"].map(
+                    s => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png`),
+                tileSize: 256,
+                attribution: "© OpenStreetMap contributors © CARTO",
+            },
+        },
+        layers: [{ id: "carto", type: "raster", source: "carto" }],
+    };
+
+    const R_NM = 3440.065;
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    function distanceNm(a, b) {
+        const p1 = toRad(a[1]), p2 = toRad(b[1]);
+        const dp = p2 - p1, dl = toRad(b[0] - a[0]);
+        const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+        return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+    }
+
+    function greatCircle(a, b) {
+        const d = distanceNm(a, b) / R_NM;
+        if (d < 1e-6) return [a.slice(), b.slice()];
+        const steps = Math.max(2, Math.min(128, Math.ceil(d * R_NM / 50)));
+        const lat1 = toRad(a[1]), lon1 = toRad(a[0]);
+        const lat2 = toRad(b[1]), lon2 = toRad(b[0]);
+        const points = [];
+        for (let i = 0; i <= steps; i++) {
+            const f = i / steps;
+            const A = Math.sin((1 - f) * d) / Math.sin(d);
+            const B = Math.sin(f * d) / Math.sin(d);
+            const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+            const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+            const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+            points.push([toDeg(Math.atan2(y, x)), toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)))]);
+        }
+        points[0] = a.slice();
+        points[points.length - 1] = b.slice();
+        return points;
+    }
+
+    function unwrap(points, startLon) {
+        let prev = startLon === undefined ? null : startLon;
+        return points.map(p => {
+            let lon = p[0];
+            if (prev !== null) {
+                while (lon - prev > 180) lon -= 360;
+                while (lon - prev < -180) lon += 360;
+            }
+            prev = lon;
+            return [lon, p[1]];
+        });
+    }
+
+    function greatCirclePath(points) {
+        const out = [];
+        for (let i = 0; i < points.length - 1; i++) {
+            const leg = greatCircle(points[i], points[i + 1]);
+            out.push(...(i === 0 ? leg : leg.slice(1)));
+        }
+        return points.length === 1 ? [points[0].slice()] : out;
+    }
+
+    function validPoint(p) {
+        return Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]);
+    }
+
+    function routeKey(dep, arr) {
+        return `${dep.icao}|${dep.lat.toFixed(4)},${dep.lon.toFixed(4)}>` +
+               `${arr.icao}|${arr.lat.toFixed(4)},${arr.lon.toFixed(4)}`;
+    }
+
+    function formatNumber(n) {
+        return Math.round(n).toLocaleString("en-US");
+    }
+
+    function formatAltitude(ft) {
+        if (!Number.isFinite(ft)) return "—";
+        if (ft >= 18000) return "FL" + String(Math.round(ft / 100)).padStart(3, "0");
+        return formatNumber(ft) + " ft";
+    }
+
+    const EMPTY = { type: "FeatureCollection", features: [] };
+
+    const state = {
+        history: EMPTY,
+        airports: EMPTY,
+        flightToKey: {},
+        keyBounds: {},
+        highlightKey: null,
+        live: null,
+        hovering: false,
+    };
+
+    let ready = false;
+    const queue = [];
+    function whenReady(fn) {
+        if (ready) fn(); else queue.push(fn);
+    }
+    window.ACARS = {
+        setHistory: (routes, opts) => whenReady(() => setHistory(routes, opts || {})),
+        highlightFlight: id => whenReady(() => highlightFlight(id)),
+        setLive: live => whenReady(() => setLive(live)),
+        resetView: () => whenReady(() => map.jumpTo(WORLD_VIEW)),
+        _geo: { distanceNm, greatCircle, greatCirclePath, unwrap, formatAltitude },
+    };
+
+    function reportState(value) {
+        document.title = "acars-map:" + value;
+    }
+
+    function showMessage(text) {
+        const el = document.getElementById("message");
+        el.textContent = text;
+        el.style.display = "flex";
+    }
+
+    if (typeof maplibregl === "undefined") {
+        showMessage("Map unavailable - it needs an internet connection.");
+        reportState("unavailable");
+        return;
+    }
+
+    const map = new maplibregl.Map({
+        container: "map",
+        style: PRIMARY_STYLE,
+        center: WORLD_VIEW.center,
+        zoom: WORLD_VIEW.zoom,
+        minZoom: 0.5,
+        maxZoom: 14,
+        dragRotate: false,
+        pitchWithRotate: false,
+        attributionControl: { compact: true },
+    });
+    map.touchZoomRotate.disableRotation();
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
+
+    let styleOk = false;
+    let usingFallback = false;
+    map.on("error", e => {
+        if (styleOk) return;
+        if (!usingFallback) {
+            usingFallback = true;
+            console.warn("OpenFreeMap style failed, using CARTO fallback:", e && e.error);
+            map.setStyle(FALLBACK_STYLE);
+        } else {
+            reportState("unavailable");
+        }
+    });
+
+    function makePlaneImage() {
+        const size = 48, ratio = 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(size / 24, size / 24);
+        const path = new Path2D("M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z");
+        ctx.lineWidth = 1.2;
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.stroke(path);
+        ctx.fillStyle = COLORS.accent;
+        ctx.fill(path);
+        return { image: ctx.getImageData(0, 0, size, size), pixelRatio: ratio };
+    }
+
+    function addLayers() {
+        if (!map.hasImage("plane")) {
+            const plane = makePlaneImage();
+            map.addImage("plane", plane.image, { pixelRatio: plane.pixelRatio });
+        }
+
+        map.addSource("history", { type: "geojson", data: state.history });
+        map.addSource("history-airports", { type: "geojson", data: state.airports });
+        map.addSource("live-flown", { type: "geojson", data: EMPTY });
+        map.addSource("live-remaining", { type: "geojson", data: EMPTY });
+        map.addSource("live-plane", { type: "geojson", data: EMPTY });
+
+        map.addLayer({
+            id: "history-lines", type: "line", source: "history",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": COLORS.accent, "line-opacity": 0.4, "line-width": 1.4 },
+        });
+        map.addLayer({
+            id: "history-highlight", type: "line", source: "history",
+            filter: ["==", ["get", "key"], ""],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": COLORS.accent, "line-opacity": 1, "line-width": 3 },
+        });
+        map.addLayer({
+            id: "history-airports", type: "circle", source: "history-airports",
+            paint: {
+                "circle-radius": 2.5,
+                "circle-color": COLORS.accent,
+                "circle-stroke-color": COLORS.bg,
+                "circle-stroke-width": 1,
+            },
+        });
+
+        map.addLayer({
+            id: "live-flown", type: "line", source: "live-flown",
+            layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+            paint: { "line-color": COLORS.accent, "line-width": 2.5 },
+        });
+        map.addLayer({
+            id: "live-remaining", type: "line", source: "live-remaining",
+            layout: { "line-join": "round", visibility: "none" },
+            paint: { "line-color": COLORS.accent, "line-width": 2, "line-opacity": 0.85,
+                     "line-dasharray": [2, 2] },
+        });
+        map.addLayer({
+            id: "live-plane", type: "symbol", source: "live-plane",
+            layout: {
+                "icon-image": "plane",
+                "icon-size": 0.75,
+                "icon-rotate": ["get", "heading"],
+                "icon-rotation-alignment": "map",
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+            },
+        });
+
+        applyHighlight();
+        renderLive();
+    }
+
+    map.on("style.load", () => {
+        styleOk = true;
+        addLayers();
+        if (!ready) {
+            ready = true;
+            queue.splice(0).forEach(fn => fn());
+            reportState("ready");
+        }
+    });
+
+    function setHistory(routes, opts) {
+        const byKey = {};
+        const airports = {};
+        state.flightToKey = {};
+        state.keyBounds = {};
+
+        (routes || []).forEach(r => {
+            const dep = r && r.dep, arr = r && r.arr;
+            if (!dep || !arr || !validPoint([dep.lon, dep.lat]) || !validPoint([arr.lon, arr.lat])) return;
+            const key = routeKey(dep, arr);
+            state.flightToKey[r.id] = key;
+            if (!byKey[key]) {
+                const coords = unwrap(greatCircle([dep.lon, dep.lat], [arr.lon, arr.lat]));
+                byKey[key] = {
+                    type: "Feature",
+                    properties: { key },
+                    geometry: { type: "LineString", coordinates: coords },
+                };
+                state.keyBounds[key] = boundsOf(coords);
+            }
+            airports[dep.icao + dep.lat + dep.lon] = [dep.lon, dep.lat];
+            airports[arr.icao + arr.lat + arr.lon] = [arr.lon, arr.lat];
+        });
+
+        state.history = { type: "FeatureCollection", features: Object.values(byKey) };
+        state.airports = {
+            type: "FeatureCollection",
+            features: Object.values(airports).map(c => ({
+                type: "Feature", properties: {}, geometry: { type: "Point", coordinates: c },
+            })),
+        };
+        if (!(state.highlightKey in state.keyBounds)) state.highlightKey = null;
+
+        map.getSource("history").setData(state.history);
+        map.getSource("history-airports").setData(state.airports);
+        applyHighlight();
+
+        if (opts.fit && state.history.features.length) {
+            const all = state.history.features.flatMap(f => f.geometry.coordinates);
+            fitTo(boundsOf(all), 5);
+        }
+    }
+
+    function highlightFlight(id) {
+        const key = id === null || id === undefined ? null : state.flightToKey[id];
+        state.highlightKey = key || null;
+        applyHighlight();
+        if (state.highlightKey) fitTo(state.keyBounds[state.highlightKey], 7);
+    }
+
+    function applyHighlight() {
+        if (!map.getLayer("history-highlight")) return;
+        map.setFilter("history-highlight", ["==", ["get", "key"], state.highlightKey || ""]);
+        map.setPaintProperty("history-lines", "line-opacity", state.highlightKey ? 0.2 : 0.4);
+    }
+
+    function boundsOf(coords) {
+        const b = [[Infinity, Infinity], [-Infinity, -Infinity]];
+        coords.forEach(([lon, lat]) => {
+            b[0][0] = Math.min(b[0][0], lon); b[0][1] = Math.min(b[0][1], lat);
+            b[1][0] = Math.max(b[1][0], lon); b[1][1] = Math.max(b[1][1], lat);
+        });
+        return b;
+    }
+
+    function fitTo(bounds, maxZoom) {
+        if (!bounds || !Number.isFinite(bounds[0][0])) return;
+        map.fitBounds(bounds, { padding: 40, maxZoom, duration: 600 });
+    }
+
+    const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 16,
+        maxWidth: "none",
+    });
+
+    function setLive(live) {
+        state.live = live && validPoint([live.lon, live.lat]) ? live : null;
+        renderLive();
+    }
+
+    function renderLive() {
+        const plane = map.getSource("live-plane");
+        if (!plane) return;
+        const live = state.live;
+
+        if (!live) {
+            plane.setData(EMPTY);
+            map.getSource("live-flown").setData(EMPTY);
+            map.getSource("live-remaining").setData(EMPTY);
+            setHover(false);
+            return;
+        }
+
+        const flownRaw = (live.flown || []).filter(validPoint);
+        const flown = unwrap(flownRaw.length ? flownRaw : [[live.lon, live.lat]]);
+        const here = flown[flown.length - 1];
+        const planeLon = unwrap([[live.lon, live.lat]], here[0])[0][0];
+
+        const remainingRaw = (live.remaining || []).filter(validPoint);
+        const remaining = remainingRaw.length > 1
+            ? unwrap(greatCirclePath(remainingRaw), planeLon)
+            : [];
+
+        plane.setData({
+            type: "FeatureCollection",
+            features: [{
+                type: "Feature",
+                properties: { heading: Number.isFinite(live.heading) ? live.heading : 0 },
+                geometry: { type: "Point", coordinates: [planeLon, live.lat] },
+            }],
+        });
+        map.getSource("live-flown").setData(lineFeature(flown));
+        map.getSource("live-remaining").setData(lineFeature(remaining));
+
+        popup.setLngLat([planeLon, live.lat]);
+        if (state.hovering) popup.setDOMContent(popupContent(live.popup || {}));
+    }
+
+    function lineFeature(coords) {
+        if (coords.length < 2) return EMPTY;
+        return { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } };
+    }
+
+    function popupContent(p) {
+        const root = document.createElement("div");
+        const line = (cls, text) => {
+            const el = document.createElement("div");
+            el.className = cls;
+            el.textContent = text;
+            root.appendChild(el);
+        };
+        const aircraft = [p.registration, p.title].filter(Boolean).join(" · ");
+        const remaining = Number.isFinite(p.remaining_nm) ? formatNumber(p.remaining_nm) + " nm" : "—";
+        const ias = Number.isFinite(p.ias_kt) ? formatNumber(p.ias_kt) + " kt" : "—";
+
+        line("popup-pilot", p.pilot || "—");
+        line("popup-route", `${p.dep || "—"} → ${p.arr || "—"}`);
+        line("popup-aircraft", aircraft || "—");
+        line("popup-stats", `${formatAltitude(p.altitude_ft)} · ${ias} · ${remaining}`);
+        return root;
+    }
+
+    function setHover(on) {
+        state.hovering = on && state.live !== null;
+        const visibility = state.hovering ? "visible" : "none";
+        map.setLayoutProperty("live-flown", "visibility", visibility);
+        map.setLayoutProperty("live-remaining", "visibility", visibility);
+        map.getCanvas().style.cursor = state.hovering ? "pointer" : "";
+        if (state.hovering) {
+            popup.setDOMContent(popupContent(state.live.popup || {}));
+            if (!popup.isOpen()) popup.addTo(map);
+        } else {
+            popup.remove();
+        }
+    }
+
+    map.on("mouseenter", "live-plane", () => setHover(true));
+    map.on("mouseleave", "live-plane", () => setHover(false));
+})();
+</script>
+</body>
+</html>

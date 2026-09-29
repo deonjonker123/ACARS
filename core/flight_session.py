@@ -5,11 +5,10 @@ The single source of truth for "connect to the sim, poll it, track flight
 state, check it against the dispatched flight plan, and record completed
 flights to the database."
 
-This exists so that logic isn't duplicated between ui/live_monitor.py and
-any future embedded live-flight widget (e.g. on the Home page). Both should
-use ONE instance of FlightSessionController rather than each rolling their
-own connector+tracker+db wiring - a bug fixed here (like the ATCCOM
-sanitization) only needs fixing once, everywhere it's used.
+The app uses ONE instance of FlightSessionController (owned by the
+Dashboard) rather than each page rolling its own connector+tracker+db
+wiring - a bug fixed here (like the ATCCOM sanitization) only needs fixing
+once, everywhere it's used.
 
 This module has no Qt dependency at all - it's plain Python, driven by
 whoever owns it calling tick() on a timer (a QTimer in the UI, or a plain
@@ -24,9 +23,19 @@ Flight rules (a flight only exists because of a dispatched flight plan):
   - At block end, the aircraft must be within ARMING_RADIUS_NM of the
     planned destination or the planned alternate. Otherwise the flight is
     REJECTED: pilot's rejected count +1, nothing logged, no hours added.
+  - A landing harder than HARD_LANDING_LIMIT_FPM (the flight's hardest
+    touchdown, see core/flight_state.py) also REJECTS the flight, the
+    same way. Exactly the limit is accepted; a flight with no captured
+    landing rate isn't judged on it.
   - cancel_dispatch() stops tracking and clears the plan - no penalty.
   - The sim's own tail number (ATC ID) is not checked; the flight is
     logged against the dispatched airframe.
+  - Network: the UI runs core.networks.check_online() in the background
+    about once a minute and hands each result to record_network_check().
+    Only checks made during block time count. The flight is logged as
+    VATSIM or IVAO if the pilot was online on it in at least
+    NETWORK_ONLINE_SHARE of those checks, otherwise OFFLINE. Checks where
+    a feed couldn't be reached (and nothing was found) don't count.
 
 Usage:
     controller = FlightSessionController()
@@ -43,6 +52,8 @@ Usage:
     result["dispatch"]            # the dispatch dict, or None
     result["arming"]              # user-readable status of the origin check, or None
 
+    controller.record_network_check(check_online(...))   # see core/networks.py
+
     try:
         controller.record_pending_flight()
     except FlightSaveBlocked as e:
@@ -53,12 +64,13 @@ Usage:
 import math
 from datetime import datetime
 
-from connectors.msfs import MSFSConnector
+from connectors.auto import AutoConnector
 from core.flight_state import FlightStateTracker
 from core.db import FlightDatabase, normalize_registration
-from core.airports import AirportLookup
 
 ARMING_RADIUS_NM = 5.0
+HARD_LANDING_LIMIT_FPM = -800
+NETWORK_ONLINE_SHARE = 0.5
 
 
 class FlightSaveBlocked(Exception):
@@ -101,21 +113,15 @@ def _distance_to_airport(lat, lon, airport):
 
 class FlightSessionController:
     def __init__(self, db=None):
-        self.connector = MSFSConnector()
+        self.connector = AutoConnector()
         self.tracker = FlightStateTracker()
         self.db = db or FlightDatabase()
         self.db.init_db()
-        self.airport_lookup = AirportLookup()
-        self.airport_lookup_ready = False
-        try:
-            self.airport_lookup.load()
-            self.airport_lookup_ready = True
-        except FileNotFoundError as e:
-            print(f"[flight_session] Airport lookup unavailable: {e}")
 
         self.connected = False
         self.dispatch_info = None
         self.pending_flight_event = None
+        self._reset_network_checks()
 
     def dispatch(self, plan, registration):
         """Locks in a flight plan and the fleet airframe to fly it in."""
@@ -138,6 +144,7 @@ class FlightSessionController:
             "designation": aircraft["designation"],
         }
         self.tracker.reset()
+        self._reset_network_checks()
 
     def cancel_dispatch(self):
         """Stops tracking and drops the dispatched plan (and any unsaved
@@ -146,6 +153,33 @@ class FlightSessionController:
         self.dispatch_info = None
         self.pending_flight_event = None
         self.tracker.reset()
+        self._reset_network_checks()
+
+    # ---- Network (VATSIM / IVAO) ----
+
+    def _reset_network_checks(self):
+        self._network_checks = 0
+        self._network_online = {}      # network -> checks it was seen online in
+
+    def record_network_check(self, result):
+        """Counts one core.networks.check_online() result towards this
+        flight's network - only during block time, and only if the check
+        was conclusive (online somewhere, or every feed was reachable)."""
+        if self.tracker.state != "BLOCK" or not result:
+            return
+        network = result.get("network")
+        if network is None and result.get("errors"):
+            return
+        self._network_checks += 1
+        if network is not None:
+            self._network_online[network] = self._network_online.get(network, 0) + 1
+
+    def network_for_log(self):
+        """"VATSIM", "IVAO" or "OFFLINE" for the flight so far."""
+        if not self._network_checks or not self._network_online:
+            return "OFFLINE"
+        network, count = max(self._network_online.items(), key=lambda item: item[1])
+        return network if count / self._network_checks >= NETWORK_ONLINE_SHARE else "OFFLINE"
 
     def _arming_status(self, data):
         """Returns (can_start_block, user-readable status or None)."""
@@ -226,9 +260,11 @@ class FlightSessionController:
         }
 
     def _check_arrival(self, event):
-        """At block end: accept if within range of the planned destination
-        or alternate (and note which one in event["arrival_icao"]).
-        Otherwise reject the flight and return a "flight_rejected" event."""
+        """At block end: the aircraft must be within range of the planned
+        destination or alternate (noted in event["arrival_icao"]), and the
+        landing no harder than HARD_LANDING_LIMIT_FPM. Returns None if the
+        flight is accepted; otherwise rejects it and returns a
+        "flight_rejected" event."""
         plan = self.dispatch_info["plan"]
         lat, lon = event.get("arr_lat"), event.get("arr_lon")
 
@@ -236,17 +272,29 @@ class FlightSessionController:
             dist = _distance_to_airport(lat, lon, airport)
             if dist is not None and dist <= ARMING_RADIUS_NM:
                 event["arrival_icao"] = airport["icao"]
-                return None
+                break
+        else:
+            dest = plan["destination"]
+            dist = _distance_to_airport(lat, lon, dest)
+            where = f"{dist:,.1f} nm from {dest['icao']}" if dist is not None else f"away from {dest['icao']}"
+            alt = plan.get("alternate")
+            alt_text = f" (ALT {alt['icao']})" if alt else ""
+            return self._reject(event, f"Landed {where}{alt_text} - flight rejected.")
 
-        dest = plan["destination"]
-        dist = _distance_to_airport(lat, lon, dest)
-        where = f"{dist:,.1f} nm from {dest['icao']}" if dist is not None else f"away from {dest['icao']}"
-        alt = plan.get("alternate")
-        alt_text = f" (ALT {alt['icao']})" if alt else ""
-        reason = f"Landed {where}{alt_text} - flight rejected."
+        landing_vs = event.get("landing_vs")
+        if isinstance(landing_vs, (int, float)) and landing_vs < HARD_LANDING_LIMIT_FPM:
+            return self._reject(
+                event,
+                f"Landed at {landing_vs:,.0f} fpm (limit {HARD_LANDING_LIMIT_FPM:,} fpm) - flight rejected.",
+            )
+        return None
 
+    def _reject(self, event, reason):
+        """Rejects the flight: rejected count +1, nothing logged, dispatch
+        ends. Returns the "flight_rejected" event for the UI."""
         self.db.reject_flight()
         self.dispatch_info = None
+        self._reset_network_checks()
         return {"type": "flight_rejected", "time": event.get("time"), "reason": reason}
 
     def record_pending_flight(self):
@@ -264,6 +312,7 @@ class FlightSessionController:
         # Only cleared once the save actually succeeded
         self.pending_flight_event = None
         self.dispatch_info = None
+        self._reset_network_checks()
         return flight_id
 
     def discard_pending_flight(self):
@@ -296,12 +345,18 @@ class FlightSessionController:
 
         log_data = dict(event)
         log_data["flight_plan"] = _plan_for_log(plan)
+        network = self.network_for_log()
+        log_data["network_checks"] = {
+            "checks": self._network_checks,
+            "online": dict(self._network_online),
+            "logged_as": network,
+        }
 
         self.db.log_flight(
             flight_number=plan.get("flight_number"),
             aircraft_designation=designation,
             aircraft_registration=registration,
-            network="OFFLINE",
+            network=network,
             departure_airport=plan["origin"]["icao"],
             arrival_airport=event.get("arrival_icao") or plan["destination"]["icao"],
             distance_nm=event.get("distance_nm"),
@@ -382,15 +437,39 @@ if __name__ == "__main__":
          tick(33.6757, -117.8682, True, 1.0, -150), tick(33.6757, -117.8682, False, 1.0)])
     print("  saved flight id:", controller.record_pending_flight())
 
+    print("\n3b) KLAX -> KSMO online on VATSIM for 3 of 4 checks (one feed timeout ignored) - VATSIM:")
+    controller.dispatch(plan, "N104TW")
+    fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, 500)])
+    for check in ({"network": "VATSIM", "errors": {}}, {"network": "VATSIM", "errors": {}},
+                  {"network": None, "errors": {}}, {"network": "VATSIM", "errors": {}},
+                  {"network": None, "errors": {"VATSIM": "timeout"}}):
+        controller.record_network_check(check)
+    print("  network so far:", controller.network_for_log())
+    fly([tick(34.0158, -118.4513, True, 1.0, -120), tick(34.0158, -118.4513, False, 1.0)])
+    controller.record_network_check({"network": None, "errors": {}})   # after block end - ignored
+    print("  saved flight id:", controller.record_pending_flight())
+
     print("\n4) KLAX -> KBUR (not planned) - rejected:")
     controller.dispatch(plan, "N104TW")
     fly([tick(33.9425, -118.408, True, 1.0), tick(34.1, -118.35, True, 0.0, 500),
          tick(34.2007, -118.3585, True, 1.0, -150), tick(34.2007, -118.3585, False, 1.0)])
 
+    print("\n5) KLAX -> KSMO, touched down at -950 fpm - rejected:")
+    controller.dispatch(plan, "N104TW")
+    fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, -950),
+         tick(34.0158, -118.4513, True, 1.0, 60), tick(34.0158, -118.4513, False, 1.0)])
+
+    print("\n6) KLAX -> KSMO, touched down at exactly -800 fpm - saved:")
+    controller.dispatch(plan, "N104TW")
+    fly([tick(33.9425, -118.408, True, 1.0), tick(34.0, -118.43, True, 0.0, -800),
+         tick(34.0158, -118.4513, True, 1.0, 40), tick(34.0158, -118.4513, False, 1.0)])
+    print("  saved flight id:", controller.record_pending_flight())
+
     print("\nLogbook:")
     for f in controller.db.list_flights():
         print(f"  {f['flight_number']} {f['departure_airport']} -> {f['arrival_airport']} "
-              f"{f['aircraft_registration']} pax={f['pax_count']} cargo={f['cargo_kg']}")
+              f"{f['aircraft_registration']} pax={f['pax_count']} cargo={f['cargo_kg']} "
+              f"network={f['network']} landing={f['landing_vs']}")
     p = controller.db.get_pilot()
     print(f"Pilot: completed={p['total_completed']} rejected={p['total_rejected']} "
           f"hours={p['total_hours_flown']:.4f}")

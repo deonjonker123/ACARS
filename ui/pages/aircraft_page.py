@@ -165,7 +165,7 @@ class AircraftDialog(QDialog):
         self.aircraft = aircraft
         self.is_edit = aircraft is not None
         self._original_image = aircraft.get("image_path") if aircraft else None
-        self._picked_image_source = None      # absolute path of a newly picked file
+        self._picked_image_source = None
         self._image_removed = False
 
         self.setWindowTitle(
@@ -565,7 +565,7 @@ class AircraftPage(QWidget):
             self.summary_label.setText(f"{total} AIRCRAFT  ·  {self._unlocked_total} UNLOCKED")
 
         self.empty_label.setVisible(total > 0 and not visible)
-        self._columns = 0          # force a re-layout
+        self._columns = 0
         self._layout_cards()
 
     def _clear_filters(self):

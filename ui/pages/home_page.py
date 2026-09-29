@@ -1,13 +1,16 @@
 """
 ui/pages/home_page.py
 
-Home page, 3 zones per the wireframe:
-  Zone 1 (top, full width):  Flight plan - fetch the latest SimBrief OFP,
-                              pick a fleet airframe, Dispatch / Cancel.
-  Zone 2 (bottom left):      Future map with historical flights - PLACEHOLDER,
-                              this is explicitly backlogged (last item per
-                              earlier conversation).
-  Zone 3 (bottom right):     Live telemetry - REAL, wired to
+Home page, 3 zones - a wide left column and a narrow right one
+(LEFT_STRETCH : RIGHT_STRETCH, 65/35):
+  Zone 2 (left, full height): Flight history - the last HISTORY_LIMIT logged
+                              flights as routes on a map (ui/widgets/map_view.py)
+                              with a paginated table below it. Clicking a row
+                              highlights that route.
+  Zone 1 (right, top):        Flight plan - fetch the latest SimBrief OFP,
+                              pick a fleet airframe, Dispatch / Cancel. Only
+                              as tall as its contents.
+  Zone 3 (right, below):      Live telemetry - REAL, wired to
                               FlightSessionController via its own QTimer.
 
 A flight only exists because of a dispatched plan (see core/flight_session.py):
@@ -17,22 +20,31 @@ the flight. When a dispatch ends (saved, rejected or cancelled) monitoring
 stops and the page is ready for the next plan.
 
 The plan summary is the shared ui/widgets/plan_summary.py block, and every
-dispatch change is passed on to the Flight Plan page (set_dispatch), which
-only ever shows the currently dispatched plan.
+dispatch change is passed on to the Flight Plan and Live Map pages
+(set_dispatch). Every poll result is passed on to the Live Map page too
+(update_live; None when monitoring stops), so the app polls the sim once.
 
-IMPORTANT: this page owns its own FlightSessionController instance and
-polls the sim independently. Do not run ui/live_monitor.py at the same
-time as main.py (which includes this page) - both would independently
-detect the same completed flight and log it to the database twice.
+This page owns the app's only FlightSessionController.
+
+While monitoring, the pilot's VATSIM/IVAO status (IDs from Settings) is
+checked in the background every NETWORK_CHECK_INTERVAL_MS
+(core/networks.py) and shown on the Network line in Live Telemetry. Each
+result goes to the controller, which decides what the flight is logged as.
+
+Route coordinates for the history map come from each flight's stored plan
+(log_data -> flight_plan origin/destination/alternate). Older flights
+without them are looked up by ICAO in data/airports.csv (core/airports.py),
+once per code per session.
 """
 
+import json
 import math
 import sys
 import os
 from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
-    QMessageBox, QComboBox
+    QMessageBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import QTimer, Qt, QThread, Signal
 
@@ -40,12 +52,24 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from ui.theme import PALETTE, font, font_heading, font_label
 from ui.widgets.plan_summary import PlanSummary, fmt_hm
+from ui.widgets.map_view import MapView
+from ui.pages.logbook_page import _format_date
 from core.flight_session import FlightSessionController, FlightSaveBlocked, FlightDispatchError
 from core.simbrief import fetch_latest_ofp, SimBriefError
 from core.pilot import PilotProgress
+from core.airports import find_airports
+from core.networks import check_online
 
 POLL_INTERVAL_MS = 1000
+NETWORK_CHECK_INTERVAL_MS = 60000
 MIN_GS_FOR_ETA_KT = 30
+LEFT_STRETCH = 65
+RIGHT_STRETCH = 35
+HISTORY_LIMIT = 100
+HISTORY_PAGE_SIZE = 10
+HISTORY_ROW_HEIGHT = 28
+HISTORY_HEADER_HEIGHT = 30
+HISTORY_COLUMNS = ["DATE", "FLIGHT", "DEP → ARR", "REG", "DISTANCE"]
 
 _INPUT_STYLE = f"""
     QComboBox {{
@@ -88,6 +112,37 @@ def _fmt(value, unit="", decimals=1):
     return f"{value}{unit}"
 
 
+def _stored_airport(airport, icao):
+    """An airport dict from a stored flight plan, if it's the airport
+    `icao` and has coordinates - else None."""
+    if not isinstance(airport, dict) or not icao:
+        return None
+    if (airport.get("icao") or "").upper() != icao.upper():
+        return None
+    lat, lon = airport.get("lat"), airport.get("lon")
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return None
+    return {"icao": icao.upper(), "lat": lat, "lon": lon}
+
+
+def _flight_endpoints(flight):
+    """(dep, arr) airport dicts ({icao, lat, lon}) for a logbook row, taken
+    from its stored flight plan. Either is None if the plan doesn't have
+    it (older flights) - the caller then looks it up by ICAO."""
+    try:
+        plan = (json.loads(flight.get("log_data") or "null") or {}).get("flight_plan") or {}
+    except (ValueError, AttributeError):
+        plan = {}
+    if not isinstance(plan, dict):
+        plan = {}
+    dep_icao = flight.get("departure_airport")
+    arr_icao = flight.get("arrival_airport")
+    dep = _stored_airport(plan.get("origin"), dep_icao)
+    arr = (_stored_airport(plan.get("destination"), arr_icao)
+           or _stored_airport(plan.get("alternate"), arr_icao))
+    return dep, arr
+
+
 def _type_key(text):
     """'TBM 850' / 'tbm-850' / 'TBM850' all compare equal - used to pre-select
     a fleet airframe matching the OFP's aircraft type."""
@@ -128,6 +183,22 @@ class _FetchWorker(QThread):
             self.finished_fetch.emit(None, f"Unexpected error fetching the plan: {e}")
 
 
+class _NetworkWorker(QThread):
+    """Runs one VATSIM/IVAO check off the UI thread (the feeds are a few MB).
+    Emits the core.networks.check_online() result."""
+    finished_check = Signal(object)
+
+    def __init__(self, ids, lat, lon):
+        super().__init__()
+        self.ids, self.lat, self.lon = ids, lat, lon
+
+    def run(self):
+        try:
+            self.finished_check.emit(check_online(self.ids, self.lat, self.lon))
+        except Exception as e:
+            self.finished_check.emit({"network": None, "callsign": None, "errors": {"check": str(e)}})
+
+
 class HomePage(QWidget):
     def __init__(self, db):
         super().__init__()
@@ -137,20 +208,27 @@ class HomePage(QWidget):
         self._fetch_worker = None
         self._fetching = False
 
-        outer = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
         outer.setContentsMargins(32, 24, 32, 24)
         outer.setSpacing(16)
 
-        outer.addWidget(self._build_zone1(), stretch=0)
+        outer.addWidget(self._build_zone2(), stretch=LEFT_STRETCH)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(16)
-        bottom_row.addWidget(self._build_zone2(), stretch=2)
-        bottom_row.addWidget(self._build_zone3(), stretch=1)
-        outer.addLayout(bottom_row, stretch=1)
+        right_column = QVBoxLayout()
+        right_column.setSpacing(16)
+        right_column.addWidget(self._build_zone1(), stretch=0)
+        right_column.addWidget(self._build_zone3(), stretch=1)
+        outer.addLayout(right_column, stretch=RIGHT_STRETCH)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
+
+        self.network_timer = QTimer(self)
+        self.network_timer.setInterval(NETWORK_CHECK_INTERVAL_MS)
+        self.network_timer.timeout.connect(self._start_network_check)
+        self._network_worker = None
+        self._network_first_check_done = False
+        self._last_position = None
 
         self._refresh_dispatch_ui()
 
@@ -170,18 +248,19 @@ class HomePage(QWidget):
         fetch_row.addWidget(self.fetch_status, stretch=1)
         layout.addLayout(fetch_row)
 
-        self.plan_summary = PlanSummary(show_badge=False)
+        self.plan_summary = PlanSummary(show_badge=False, columns=3)
         layout.addWidget(self.plan_summary)
 
-        dispatch_row = QHBoxLayout()
         aircraft_label = QLabel("AIRCRAFT")
         aircraft_label.setFont(font_label(9))
         aircraft_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        dispatch_row.addWidget(aircraft_label)
+        layout.addWidget(aircraft_label)
 
+        dispatch_row = QHBoxLayout()
         self.aircraft_combo = QComboBox()
-        self.aircraft_combo.setMinimumWidth(240)
-        dispatch_row.addWidget(self.aircraft_combo)
+        self.aircraft_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.aircraft_combo.setMinimumContentsLength(12)
+        dispatch_row.addWidget(self.aircraft_combo, stretch=1)
 
         self.dispatch_button = QPushButton("Dispatch")
         self.dispatch_button.setCursor(Qt.PointingHandCursor)
@@ -192,11 +271,12 @@ class HomePage(QWidget):
         self.cancel_button.setCursor(Qt.PointingHandCursor)
         self.cancel_button.clicked.connect(self._cancel_flight)
         dispatch_row.addWidget(self.cancel_button)
+        layout.addLayout(dispatch_row)
 
         self.dispatch_status = QLabel("")
         self.dispatch_status.setFont(font_label(9))
-        dispatch_row.addWidget(self.dispatch_status, stretch=1)
-        layout.addLayout(dispatch_row)
+        self.dispatch_status.setWordWrap(True)
+        layout.addWidget(self.dispatch_status)
 
         return card
 
@@ -307,6 +387,7 @@ class HomePage(QWidget):
             self.dispatch_status.setStyleSheet(f"color: {PALETTE['positive']};")
         else:
             self.dispatch_status.setText("")
+        self.dispatch_status.setVisible(dispatched)
 
         self.monitor_button.setEnabled(monitoring or dispatched)
 
@@ -315,23 +396,174 @@ class HomePage(QWidget):
         if flight_plan_page is not None and hasattr(flight_plan_page, "set_dispatch"):
             flight_plan_page.set_dispatch(dispatch)
 
+        live_map_page = self._live_map_page()
+        if live_map_page is not None and hasattr(live_map_page, "set_dispatch"):
+            live_map_page.set_dispatch(dispatch)
+
+    def _live_map_page(self):
+        main_window = self.window()
+        return main_window.get_page("live_map") if hasattr(main_window, "get_page") else None
+
+    def _send_live(self, result):
+        """Passes a poll result (or None when monitoring stops) to the Live Map page."""
+        live_map_page = self._live_map_page()
+        if live_map_page is not None and hasattr(live_map_page, "update_live"):
+            live_map_page.update_live(result)
+
     def showEvent(self, event):
         super().showEvent(event)
-        # Fleet/rank may have changed on other pages since the last fetch
         if self.plan is not None and self.controller.dispatch_info is None:
             self._populate_aircraft()
+        self.refresh_history()
 
     def _build_zone2(self):
-        card, layout = _card("FLIGHT MAP")
+        card, layout = _card("FLIGHT HISTORY")
 
-        msg = QLabel("Live map with historical flight routes (origin → destination) - planned, not built yet.")
-        msg.setFont(font(11))
-        msg.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        msg.setWordWrap(True)
-        msg.setAlignment(Qt.AlignCenter)
-        layout.addWidget(msg, stretch=1, alignment=Qt.AlignCenter)
+        self.history_map = MapView()
+        self.history_map.setMinimumHeight(220)
+        layout.addWidget(self.history_map, stretch=1)
+
+        self.history_table = QTableWidget(0, len(HISTORY_COLUMNS))
+        self.history_table.setHorizontalHeaderLabels(HISTORY_COLUMNS)
+        self.history_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.history_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.verticalHeader().setDefaultSectionSize(HISTORY_ROW_HEIGHT)
+        header = self.history_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+        header.setFixedHeight(HISTORY_HEADER_HEIGHT)
+        self.history_table.setFixedHeight(
+            HISTORY_HEADER_HEIGHT + HISTORY_ROW_HEIGHT * HISTORY_PAGE_SIZE + 4
+        )
+        self.history_table.itemSelectionChanged.connect(self._on_history_selection)
+        layout.addWidget(self.history_table)
+
+        pager = QHBoxLayout()
+        self.history_info = QLabel("")
+        self.history_info.setFont(font_label(9))
+        self.history_info.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        pager.addWidget(self.history_info, stretch=1)
+
+        self.history_all_button = QPushButton("Show All")
+        self.history_all_button.setCursor(Qt.PointingHandCursor)
+        self.history_all_button.clicked.connect(self._show_all_history)
+        pager.addWidget(self.history_all_button)
+
+        self.history_prev_button = QPushButton("‹ Prev")
+        self.history_prev_button.setCursor(Qt.PointingHandCursor)
+        self.history_prev_button.clicked.connect(lambda: self._set_history_page(self._history_page - 1))
+        pager.addWidget(self.history_prev_button)
+
+        self.history_page_label = QLabel("")
+        self.history_page_label.setFont(font_label(9))
+        self.history_page_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        pager.addWidget(self.history_page_label)
+
+        self.history_next_button = QPushButton("Next ›")
+        self.history_next_button.setCursor(Qt.PointingHandCursor)
+        self.history_next_button.clicked.connect(lambda: self._set_history_page(self._history_page + 1))
+        pager.addWidget(self.history_next_button)
+        layout.addLayout(pager)
+
+        self._history_flights = []
+        self._history_page = 0
+        self._history_signature = None
+        self._airport_cache = {}
 
         return card
+
+    def refresh_history(self):
+        """Reloads the last HISTORY_LIMIT flights. The map is only redrawn
+        (and re-fitted) when the flights actually changed."""
+        flights = self.db.list_flights(limit=HISTORY_LIMIT)
+        signature = [(f["id"], f["departure_airport"], f["arrival_airport"],
+                      f["aircraft_registration"]) for f in flights]
+        if signature == self._history_signature:
+            return
+        self._history_signature = signature
+        self._history_flights = flights
+
+        endpoints = {f["id"]: _flight_endpoints(f) for f in flights}
+        missing = set()
+        for f in flights:
+            dep, arr = endpoints[f["id"]]
+            for airport, icao in ((dep, f["departure_airport"]), (arr, f["arrival_airport"])):
+                if airport is None and icao and icao.upper() not in self._airport_cache:
+                    missing.add(icao.upper())
+        if missing:
+            found = find_airports(missing)
+            for icao in missing:
+                airport = found.get(icao)
+                self._airport_cache[icao] = (
+                    {"icao": icao, "lat": airport["lat"], "lon": airport["lon"]} if airport else None
+                )
+
+        routes = []
+        for f in flights:
+            dep, arr = endpoints[f["id"]]
+            dep = dep or self._airport_cache.get((f["departure_airport"] or "").upper())
+            arr = arr or self._airport_cache.get((f["arrival_airport"] or "").upper())
+            if dep is not None and arr is not None:
+                routes.append({"id": f["id"], "dep": dep, "arr": arr})
+
+        self.history_map.set_history(routes, fit=True)
+        self._set_history_page(0)
+
+    def _set_history_page(self, page):
+        pages = max(1, math.ceil(len(self._history_flights) / HISTORY_PAGE_SIZE))
+        self._history_page = min(max(page, 0), pages - 1)
+        start = self._history_page * HISTORY_PAGE_SIZE
+        rows = self._history_flights[start:start + HISTORY_PAGE_SIZE]
+
+        self.history_table.blockSignals(True)
+        self.history_table.clearSelection()
+        self.history_table.setRowCount(len(rows))
+        for row, f in enumerate(rows):
+            dep = f["departure_airport"] or "—"
+            arr = f["arrival_airport"] or "—"
+            dist = f["distance_nm"]
+            values = [
+                _format_date(f["logged_at"]),
+                f["flight_number"] or "—",
+                f"{dep} → {arr}",
+                f["aircraft_registration"] or "—",
+                f"{dist:,.0f} nm" if dist is not None else "—",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setData(Qt.UserRole, f["id"])
+                self.history_table.setItem(row, col, item)
+        self.history_table.blockSignals(False)
+        self.history_map.highlight_flight(None)
+
+        total = len(self._history_flights)
+        if total:
+            self.history_info.setText(
+                f"LAST {total} FLIGHT{'S' if total != 1 else ''}  ·  "
+                f"SHOWING {start + 1}–{start + len(rows)}"
+            )
+        else:
+            self.history_info.setText("NO FLIGHTS LOGGED YET")
+        self.history_page_label.setText(f"{self._history_page + 1} / {pages}")
+        self.history_prev_button.setEnabled(self._history_page > 0)
+        self.history_next_button.setEnabled(self._history_page < pages - 1)
+
+    def _on_history_selection(self):
+        rows = self.history_table.selectionModel().selectedRows()
+        if not rows:
+            self.history_map.highlight_flight(None)
+            return
+        item = self.history_table.item(rows[0].row(), 0)
+        self.history_map.highlight_flight(item.data(Qt.UserRole) if item else None)
+
+    def _show_all_history(self):
+        self.history_table.clearSelection()
+        self.history_map.highlight_flight(None)
+        self._history_signature = None
+        self.refresh_history()
 
     def _build_zone3(self):
         card, layout = _card("LIVE TELEMETRY")
@@ -343,7 +575,7 @@ class HomePage(QWidget):
 
         self.save_button = QPushButton("Save Flight")
         self.save_button.setCursor(Qt.PointingHandCursor)
-        self.save_button.setVisible(False)  # only shown once a flight completes
+        self.save_button.setVisible(False)
         self.save_button.clicked.connect(self._save_pending_flight)
         layout.addWidget(self.save_button)
 
@@ -366,6 +598,12 @@ class HomePage(QWidget):
         self.sim_label.setFont(font_label(8))
         self.sim_label.setStyleSheet(f"color: {PALETTE['text_muted']};")
         layout.addWidget(self.sim_label)
+
+        self.network_label = QLabel("")
+        self.network_label.setFont(font_label(9))
+        self.network_label.setWordWrap(True)
+        layout.addWidget(self.network_label)
+        self._set_network_label("Network: —", PALETTE["text_muted"])
 
         layout.addWidget(self._divider())
 
@@ -455,6 +693,10 @@ class HomePage(QWidget):
             if self.controller.dispatch_info is None:
                 return
             self.timer.start(POLL_INTERVAL_MS)
+            self.network_timer.start()
+            self._network_first_check_done = False
+            self._last_position = None
+            self._set_network_label("Network: checking...", PALETTE["text_secondary"])
             self.monitor_button.setText("Stop Monitoring")
             self.status_label.setText("Connecting...")
             self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
@@ -464,12 +706,50 @@ class HomePage(QWidget):
 
     def _stop_monitoring(self):
         self.timer.stop()
+        self.network_timer.stop()
+        self._set_network_label("Network: —", PALETTE["text_muted"])
         self.controller.disconnect()
+        self._send_live(None)
         self.monitor_button.setText("Start Flight")
         self.status_label.setText("Not monitoring")
         self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         self.arming_label.setText("")
         self.state_label.setText("State: —")
+
+    def _set_network_label(self, text, color):
+        self.network_label.setText(text)
+        self.network_label.setStyleSheet(f"color: {color};")
+
+    def _start_network_check(self):
+        """Starts a background VATSIM/IVAO check at the last known sim
+        position (skipped if one is still running or there's no position yet)."""
+        if self._network_worker is not None and self._network_worker.isRunning():
+            return
+        pilot = self.db.get_pilot() or {}
+        ids = {"VATSIM": pilot.get("vatsim_id"), "IVAO": pilot.get("ivao_id")}
+        if not any(ids.values()):
+            self._set_network_label("Network: Offline (no VATSIM/IVAO ID in Settings)", PALETTE["text_muted"])
+            return
+        if self._last_position is None:
+            return
+        self._network_worker = _NetworkWorker(ids, *self._last_position)
+        self._network_worker.finished_check.connect(self._on_network_checked)
+        self._network_worker.start()
+
+    def _on_network_checked(self, result):
+        if not self.timer.isActive():
+            return
+        self.controller.record_network_check(result)
+        network = result.get("network")
+        if network is not None:
+            callsign = result.get("callsign")
+            text = f"Network: {network}" + (f"  ·  {callsign}" if callsign else "")
+            self._set_network_label(text, PALETTE["positive"])
+        elif result.get("errors"):
+            reasons = "; ".join(result["errors"].values())
+            self._set_network_label(f"Network: couldn't check ({reasons})", PALETTE["warning"])
+        else:
+            self._set_network_label("Network: Offline", PALETTE["text_secondary"])
 
     def _set_arming(self, text):
         if not text:
@@ -499,6 +779,8 @@ class HomePage(QWidget):
             QMessageBox.critical(self, "Flight Rejected", rejection["reason"])
             return
 
+        self._send_live(result)
+
         if not result["connected"]:
             self.status_label.setText("Not connected")
             self.status_label.setStyleSheet(f"color: {PALETTE['negative']};")
@@ -521,6 +803,12 @@ class HomePage(QWidget):
         data = result["data"]
         live = result["live"]
         cur_lat, cur_lon = data.get("latitude"), data.get("longitude")
+
+        if cur_lat is not None and cur_lon is not None:
+            self._last_position = (cur_lat, cur_lon)
+            if not self._network_first_check_done:
+                self._network_first_check_done = True
+                self._start_network_check()
 
         dep_lat = getattr(self.controller.tracker, "dep_lat", None)
         dep_lon = getattr(self.controller.tracker, "dep_lon", None)
@@ -583,6 +871,8 @@ class HomePage(QWidget):
         aircraft_page = main_window.get_page("aircraft") if hasattr(main_window, "get_page") else None
         if aircraft_page is not None and hasattr(aircraft_page, "refresh"):
             aircraft_page.refresh()
+
+        self.refresh_history()
 
 
 if __name__ == "__main__":

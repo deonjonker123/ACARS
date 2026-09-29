@@ -72,7 +72,6 @@ class RanksPage(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        # Same fix as the Aircraft page: scroll areas default to a white viewport
         self.scroll.setObjectName("RanksScroll")
         self.scroll.viewport().setObjectName("RanksViewport")
         self.scroll.setStyleSheet(f"""
@@ -92,7 +91,7 @@ class RanksPage(QWidget):
     def refresh(self):
         pilot = self.db.get_pilot() or {}
         progress = PilotProgress(pilot.get("total_hours_flown") or 0)
-        ranks = progress.ranks                       # sorted by order
+        ranks = progress.ranks
         rank_ids = {r["id"] for r in ranks}
 
         fleet = self.db.list_aircraft()

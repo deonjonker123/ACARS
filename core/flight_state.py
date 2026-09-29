@@ -10,6 +10,20 @@ This module knows nothing about SimConnect, UDP, or any specific sim -
 it only understands the normalized dict shape. That's what lets the same
 tracker serve MSFS, P3D, and X-Plane connectors later.
 
+Landing rate: a flight's landing_vs is its HARDEST touchdown (most
+negative), so a bounce can't hide a hard first landing. Two sources:
+  - Sampled (preferred): connectors that watch touchdowns many times a
+    second (connectors/msfs.py, 20x) pass the rates caught since the last
+    tick in data["touchdowns"]. Only touchdowns after the flight has been
+    airborne count.
+  - 1 s fallback: when no sampled touchdown was caught (connector without
+    a sampler, or the sampler failed), each touchdown seen at the normal
+    ~1 s tick is the more negative of the last airborne reading and the
+    first on-ground one - the first on-ground reading alone is usually
+    taken after the aircraft has settled or is rebounding on its gear.
+block_end reports which one was used in "landing_vs_source" ("sampled" or
+"1s"), plus every sampled touchdown in "sampled_touchdowns".
+
 Usage:
     tracker = FlightStateTracker()
     result = tracker.update(data)   # data = connector.read() dict
@@ -21,6 +35,13 @@ Usage:
 
 import time
 import math
+
+
+def _touchdown_vs(airborne_vs, ground_vs):
+    """The more negative of the last airborne and first on-ground vertical
+    speed readings (fpm), ignoring missing ones. None if both are missing."""
+    readings = [v for v in (airborne_vs, ground_vs) if isinstance(v, (int, float))]
+    return min(readings) if readings else None
 
 
 def _haversine_nm(lat1, lon1, lat2, lon2):
@@ -49,7 +70,7 @@ class FlightStateTracker:
         self.block_hours = None
         self._prev = {}
         self.g_force_peak = None
-        self.landing_vs = None
+        self._reset_landing()
         self.landing_g = None
         self.distance_nm = 0.0
         self.fuel_at_block_start = None
@@ -63,6 +84,22 @@ class FlightStateTracker:
         self.dep_lon = None
         self.arr_lat = None
         self.arr_lon = None
+
+    def _reset_landing(self):
+        self.landing_vs = None
+        self.landing_vs_source = None
+        self._sampled_touchdowns = []
+        self._fallback_landing_vs = None
+
+    def _update_landing_vs(self):
+        """landing_vs = hardest sampled touchdown if any were caught,
+        else the hardest 1 s fallback reading."""
+        if self._sampled_touchdowns:
+            self.landing_vs = min(self._sampled_touchdowns)
+            self.landing_vs_source = "sampled"
+        elif self._fallback_landing_vs is not None:
+            self.landing_vs = self._fallback_landing_vs
+            self.landing_vs_source = "1s"
 
     def update(self, data, can_start_block=True):
         """
@@ -97,7 +134,7 @@ class FlightStateTracker:
             self.block_start_time = time.time()
             self.was_airborne = False
             self.g_force_peak = None
-            self.landing_vs = None
+            self._reset_landing()
             self.landing_g = None
             self.distance_nm = 0.0
             self.fuel_at_block_start = data.get("fuel_total_weight")
@@ -130,14 +167,25 @@ class FlightStateTracker:
                     if self.g_force_peak is None or g > self.g_force_peak:
                         self.g_force_peak = g
 
+            sampled_now = []
+            if self.was_airborne:
+                sampled_now = [v for v in data.get("touchdowns") or [] if isinstance(v, (int, float))]
+                if sampled_now:
+                    self._sampled_touchdowns.extend(sampled_now)
+                    self._update_landing_vs()
+
             prev_on_ground = prev.get("on_ground")
             if self.was_airborne and prev_on_ground == 0.0 and on_ground == 1.0:
-                self.landing_vs = data.get("vertical_speed")
+                touchdown_vs = _touchdown_vs(prev.get("vertical_speed"), data.get("vertical_speed"))
+                if touchdown_vs is not None and (self._fallback_landing_vs is None
+                                                 or touchdown_vs < self._fallback_landing_vs):
+                    self._fallback_landing_vs = touchdown_vs
+                self._update_landing_vs()
                 self.landing_g = self.g_force_peak
                 events.append({
                     "type": "landing",
                     "time": time.time(),
-                    "vertical_speed": self.landing_vs,
+                    "vertical_speed": min(sampled_now) if sampled_now else touchdown_vs,
                     "g_force": self.landing_g,
                 })
 
@@ -197,6 +245,8 @@ class FlightStateTracker:
                     "distance_nm": self.distance_nm,
                     "fuel_burned": self.fuel_burned,
                     "landing_vs": self.landing_vs,
+                    "landing_vs_source": self.landing_vs_source,
+                    "sampled_touchdowns": list(self._sampled_touchdowns),
                     "landing_g": self.landing_g,
                     "aircraft_title": self.aircraft_title,
                     "atc_type": self.aircraft_atc_type,

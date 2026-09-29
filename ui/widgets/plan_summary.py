@@ -10,8 +10,17 @@ Flight Plan page so both always show a plan the same way:
     C172           5,000 ft   44 nm      0h 54m       3     44 kg
     DCT LAX LAX046 ELMOO V186 DARTS DCT
 
+The detail figures sit in one row by default. Pass columns=3 to wrap them
+into rows of three instead (the Dashboard, where the summary sits in a
+narrow column):
+    OFP AIRCRAFT   CRUISE     DISTANCE
+    C172           5,000 ft   44 nm
+    EST. BLOCK     PAX        CARGO
+    0h 54m         3          44 kg
+
 Usage:
     summary = PlanSummary(show_badge=True)
+    summary = PlanSummary(columns=3)
     summary.set_plan(plan, dispatch=controller.dispatch_info)   # plan = core.simbrief dict
     summary.set_plan(None)                                      # clears it
 """
@@ -49,9 +58,10 @@ DETAIL_FIELDS = [
 
 
 class PlanSummary(QWidget):
-    def __init__(self, show_badge=False, parent=None):
+    def __init__(self, show_badge=False, columns=None, parent=None):
         """show_badge: show the DISPATCHED · <aircraft> badge on the title
-        line (the Home page has its own dispatch status, so it leaves this off)."""
+        line (the Home page has its own dispatch status, so it leaves this off).
+        columns: detail figures per row - None puts them all in one row."""
         super().__init__(parent)
         self.show_badge = show_badge
 
@@ -74,24 +84,33 @@ class PlanSummary(QWidget):
 
         self.airports = QLabel("")
         self.airports.setFont(font(9))
+        self.airports.setWordWrap(True)
         self.airports.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         layout.addWidget(self.airports)
 
+        per_row = columns or len(DETAIL_FIELDS)
         details = QGridLayout()
         details.setHorizontalSpacing(24)
         details.setVerticalSpacing(2)
         self.values = {}
-        for col, (key, label) in enumerate(DETAIL_FIELDS):
+        for i, (key, label) in enumerate(DETAIL_FIELDS):
+            row, col = (i // per_row) * 2, i % per_row
             name = QLabel(label)
             name.setFont(font_label(8))
             name.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+            if row > 0:
+                name.setContentsMargins(0, 6, 0, 0)
             value = QLabel("—")
             value.setFont(font(10))
             value.setStyleSheet(f"color: {PALETTE['text_primary']};")
-            details.addWidget(name, 0, col)
-            details.addWidget(value, 1, col)
+            details.addWidget(name, row, col)
+            details.addWidget(value, row + 1, col)
             self.values[key] = value
-        details.setColumnStretch(len(DETAIL_FIELDS), 1)
+        if per_row < len(DETAIL_FIELDS):
+            for col in range(per_row):
+                details.setColumnStretch(col, 1)
+        else:
+            details.setColumnStretch(len(DETAIL_FIELDS), 1)
         layout.addLayout(details)
 
         self.route = QLabel("")

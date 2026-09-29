@@ -453,8 +453,6 @@ class FlightDatabase:
             pilot = conn.execute("SELECT * FROM pilot WHERE id = 1").fetchone()
             new_total_hours = pilot["total_hours_flown"] + block_hours
             new_completed = pilot["total_completed"] + 1
-
-            # Incremental running average for landing rate, skipped if no VS captured
             new_avg_landing = pilot["average_landing_rate"]
             if landing_vs is not None:
                 if new_avg_landing is None:
@@ -500,7 +498,7 @@ if __name__ == "__main__":
 
     db = FlightDatabase(db_path=test_db_path)
     db.init_db()
-    db.init_db()  # second run must not re-seed
+    db.init_db()
     print("Seeded fleet size:", len(db.list_aircraft()))
     print("Sample:", db.list_aircraft()[0])
 

@@ -184,7 +184,7 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Profile Not Saved", str(e))
             return
 
-        self._load()  # show the cleaned values as stored (trimmed, uppercased)
+        self._load()
 
         main_window = self.window()
         if hasattr(main_window, "update_pilot_data"):
@@ -195,7 +195,6 @@ class SettingsPage(QWidget):
 
 
 if __name__ == "__main__":
-    # Standalone preview of just this page against the real database.
     from PySide6.QtWidgets import QApplication
     from ui.theme import load_fonts, build_stylesheet
     from core.db import FlightDatabase

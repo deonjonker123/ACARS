@@ -87,7 +87,7 @@ class LogbookPage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)  # AIRCRAFT column stretches
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)
 
