@@ -170,6 +170,20 @@ class LiveMapPage(QWidget):
         else:
             self._set_status(f"{self._flight_text()}  ·  NOT TRACKING", PALETTE["text_secondary"])
 
+    def track_state(self):
+        """The flown track so far, for saving with the flight in progress
+        (core/flight_session.py save_active_flight)."""
+        return [list(point) for point in self._track]
+
+    def restore_track(self, track):
+        """Puts back a saved track after the app was reopened mid-flight.
+        Call it after set_dispatch(), which starts a fresh track."""
+        self._track = [
+            [point[0], point[1]] for point in track or []
+            if isinstance(point, (list, tuple)) and len(point) == 2
+            and _is_coord(point[0]) and _is_coord(point[1])
+        ]
+
     def update_live(self, result):
         """One poll result from FlightSessionController.tick(), or None when
         monitoring stops. The plane is only shown while there's live data

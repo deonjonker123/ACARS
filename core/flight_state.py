@@ -101,6 +101,30 @@ class FlightStateTracker:
             self.landing_vs = self._fallback_landing_vs
             self.landing_vs_source = "1s"
 
+    _SAVED_FIELDS = (
+        "state", "was_airborne", "block_start_time", "g_force_peak",
+        "landing_vs", "landing_vs_source", "_sampled_touchdowns", "_fallback_landing_vs",
+        "landing_g", "distance_nm", "fuel_at_block_start",
+        "aircraft_title", "aircraft_atc_type", "aircraft_atc_model", "aircraft_atc_id",
+        "dep_lat", "dep_lon", "_prev",
+    )
+
+    def to_state(self):
+        """Everything needed to carry on tracking this flight later, as a
+        JSON-friendly dict (see core/flight_session.py)."""
+        return {name: getattr(self, name) for name in self._SAVED_FIELDS}
+
+    def restore_state(self, saved):
+        """Puts back a to_state() dict. The next update() carries on from
+        the last saved reading - distance to the new position is added, and
+        a landing or block end that happened in the meantime is picked up."""
+        self.reset()
+        for name in self._SAVED_FIELDS:
+            if name in saved:
+                setattr(self, name, saved[name])
+        self._sampled_touchdowns = list(self._sampled_touchdowns or [])
+        self._prev = dict(self._prev or {})
+
     def update(self, data, can_start_block=True):
         """
         Process one tick of telemetry.

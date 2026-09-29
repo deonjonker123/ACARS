@@ -63,12 +63,16 @@ Usage:
                                   # the flight stays pending, fix it and save again
 """
 
+import json
 import math
+import os
+import time
 from datetime import datetime
 
 from connectors.auto import AutoConnector
 from core.flight_state import FlightStateTracker
 from core.db import FlightDatabase, normalize_registration, VALID_NETWORKS
+from core.paths import ACTIVE_FLIGHT_PATH
 
 ARMING_RADIUS_NM = 5.0
 HARD_LANDING_LIMIT_FPM = -800
@@ -124,6 +128,7 @@ class FlightSessionController:
         self.dispatch_info = None
         self.pending_flight_event = None
         self._reset_network_checks()
+        self._ui_state = {}
 
     def dispatch(self, plan, registration, network="OFFLINE"):
         """Locks in a flight plan, the fleet airframe to fly it in and the
@@ -152,6 +157,8 @@ class FlightSessionController:
         }
         self.tracker.reset()
         self._reset_network_checks()
+        self._ui_state = {}
+        self.save_active_flight()
 
     def cancel_dispatch(self):
         """Stops tracking and drops the dispatched plan (and any unsaved
@@ -161,12 +168,80 @@ class FlightSessionController:
         self.pending_flight_event = None
         self.tracker.reset()
         self._reset_network_checks()
+        self.clear_active_flight()
 
-    # ---- Network (VATSIM / IVAO) ----
+    def save_active_flight(self, ui_state=None):
+        """Writes the dispatched flight to ACTIVE_FLIGHT_PATH: the dispatch,
+        the tracker, the network counts and any completed-but-unsaved
+        flight. ui_state is extra data the UI wants back on resume (e.g. the
+        Live Map track); the last one given is kept for the automatic saves.
+        Written to a temp file first, so a crash mid-write can't corrupt it."""
+        if ui_state is not None:
+            self._ui_state = ui_state
+        if self.dispatch_info is None:
+            self.clear_active_flight()
+            return
+        saved = {
+            "saved_at": time.time(),
+            "dispatch": self.dispatch_info,
+            "tracker": self.tracker.to_state(),
+            "pending_flight_event": self.pending_flight_event,
+            "network_checks": self._network_checks,
+            "network_online": self._network_online,
+            "ui": self._ui_state,
+        }
+        temp_path = ACTIVE_FLIGHT_PATH + ".tmp"
+        try:
+            os.makedirs(os.path.dirname(ACTIVE_FLIGHT_PATH), exist_ok=True)
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(saved, f)
+            os.replace(temp_path, ACTIVE_FLIGHT_PATH)
+        except (OSError, TypeError, ValueError) as e:
+            print(f"[flight_session] Couldn't save the flight in progress: {e}")
+
+    @staticmethod
+    def load_active_flight():
+        """The saved flight in progress, or None if there isn't one (or it
+        can't be read - it's then renamed to .bad so it doesn't come back)."""
+        if not os.path.exists(ACTIVE_FLIGHT_PATH):
+            return None
+        try:
+            with open(ACTIVE_FLIGHT_PATH, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            if not isinstance(saved, dict) or not saved.get("dispatch"):
+                raise ValueError("no dispatch in it")
+            return saved
+        except (OSError, ValueError) as e:
+            print(f"[flight_session] Couldn't read the saved flight ({e}) - set aside as .bad")
+            try:
+                os.replace(ACTIVE_FLIGHT_PATH, ACTIVE_FLIGHT_PATH + ".bad")
+            except OSError:
+                pass
+            return None
+
+    def restore_active_flight(self, saved):
+        """Carries on a flight from load_active_flight(). Returns the UI's
+        saved extra data (see save_active_flight)."""
+        self.dispatch_info = saved["dispatch"]
+        self.tracker.restore_state(saved.get("tracker") or {})
+        self.pending_flight_event = saved.get("pending_flight_event")
+        self._network_checks = saved.get("network_checks") or 0
+        self._network_online = dict(saved.get("network_online") or {})
+        self._ui_state = saved.get("ui") or {}
+        return self._ui_state
+
+    @staticmethod
+    def clear_active_flight():
+        try:
+            os.remove(ACTIVE_FLIGHT_PATH)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"[flight_session] Couldn't remove the saved flight: {e}")
 
     def _reset_network_checks(self):
         self._network_checks = 0
-        self._network_online = {}      # network -> checks it was seen online in
+        self._network_online = {}
 
     def record_network_check(self, result):
         """Counts one core.networks.check_online() result towards this
@@ -253,6 +328,10 @@ class FlightSessionController:
                 else:
                     self.pending_flight_event = event
 
+        if self.dispatch_info is not None and any(
+                e["type"] in ("block_start", "airborne", "landing", "block_end") for e in events):
+            self.save_active_flight()
+
         if result["state"] == "BLOCK":
             arming = None
         elif self.pending_flight_event is not None:
@@ -307,6 +386,7 @@ class FlightSessionController:
         self.db.reject_flight()
         self.dispatch_info = None
         self._reset_network_checks()
+        self.clear_active_flight()
         return {"type": "flight_rejected", "time": event.get("time"), "reason": reason}
 
     def record_pending_flight(self):
@@ -321,10 +401,11 @@ class FlightSessionController:
         if self.pending_flight_event is None or self.dispatch_info is None:
             return None
         flight_id = self._record_flight(self.pending_flight_event)
-        # Only cleared once the save actually succeeded
+
         self.pending_flight_event = None
         self.dispatch_info = None
         self._reset_network_checks()
+        self.clear_active_flight()
         return flight_id
 
     def discard_pending_flight(self):
@@ -422,7 +503,7 @@ if __name__ == "__main__":
         return {"on_ground": on_ground, "engine_running": engine, "latitude": lat, "longitude": lon,
                 "fuel_total_weight": 150, "vertical_speed": vs, "g_force": 1.0,
                 "gear_handle_position": 1, "flaps_handle_index": 0, "parking_brake": 0,
-                "atc_id": "ASXGS"}   # sim tail number deliberately different - ignored
+                "atc_id": "ASXGS"}
 
     def fly(ticks):
         for t in ticks:
@@ -459,7 +540,7 @@ if __name__ == "__main__":
         controller.record_network_check(check)
     print("  network so far:", controller.network_for_log())
     fly([tick(34.0158, -118.4513, True, 1.0, -120), tick(34.0158, -118.4513, False, 1.0)])
-    controller.record_network_check({"network": None, "errors": {}})   # after block end - ignored
+    controller.record_network_check({"network": None, "errors": {}})
     print("  saved flight id:", controller.record_pending_flight())
 
     print("\n3c) Declared IVAO but only seen on VATSIM - OFFLINE:")

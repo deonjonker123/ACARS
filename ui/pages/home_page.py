@@ -62,6 +62,7 @@ from core.networks import check_online
 
 POLL_INTERVAL_MS = 1000
 NETWORK_CHECK_INTERVAL_MS = 60000
+SAVE_FLIGHT_INTERVAL_MS = 15000
 MIN_GS_FOR_ETA_KT = 30
 LEFT_STRETCH = 65
 RIGHT_STRETCH = 35
@@ -229,6 +230,11 @@ class HomePage(QWidget):
         self._network_worker = None
         self._network_first_check_done = False
         self._last_position = None
+
+        self.save_timer = QTimer(self)
+        self.save_timer.setInterval(SAVE_FLIGHT_INTERVAL_MS)
+        self.save_timer.timeout.connect(self._save_flight_now)
+        self._resume_checked = False
 
         self._refresh_dispatch_ui()
 
@@ -446,6 +452,10 @@ class HomePage(QWidget):
         if self.controller.dispatch_info is None:
             self._populate_networks()
         self.refresh_history()
+
+        if not self._resume_checked:
+            self._resume_checked = True
+            QTimer.singleShot(0, self._offer_resume)
 
     def _build_zone2(self):
         card, layout = _card("FLIGHT HISTORY")
@@ -725,6 +735,7 @@ class HomePage(QWidget):
                 return
             self.timer.start(POLL_INTERVAL_MS)
             self.network_timer.start()
+            self.save_timer.start()
             self._network_first_check_done = False
             self._last_position = None
             self._set_network_label("Network: checking...", PALETTE["text_secondary"])
@@ -736,8 +747,10 @@ class HomePage(QWidget):
         self._refresh_dispatch_ui()
 
     def _stop_monitoring(self):
+        self._save_flight_now()
         self.timer.stop()
         self.network_timer.stop()
+        self.save_timer.stop()
         self._set_network_label("Network: —", PALETTE["text_muted"])
         self.controller.disconnect()
         self._send_live(None)
@@ -746,6 +759,68 @@ class HomePage(QWidget):
         self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         self.arming_label.setText("")
         self.state_label.setText("State: —")
+
+    def _save_flight_now(self):
+        """Saves the flight in progress, with the Live Map's track."""
+        live_map_page = self._live_map_page()
+        track = live_map_page.track_state() if hasattr(live_map_page, "track_state") else []
+        self.controller.save_active_flight(ui_state={"track": track})
+
+    def _offer_resume(self):
+        """At startup: if the app closed during a flight, offer to carry on."""
+        saved = self.controller.load_active_flight()
+        if saved is None:
+            return
+
+        dispatch = saved["dispatch"]
+        plan = dispatch["plan"]
+        tracker = saved.get("tracker") or {}
+        lines = [
+            f"{plan.get('flight_number') or '—'}   {plan['origin']['icao']} → {plan['destination']['icao']}"
+            f"   ·   {dispatch['designation']} {dispatch['registration']}"
+            f"   ·   {dispatch.get('network') or 'OFFLINE'}",
+        ]
+        if saved.get("pending_flight_event"):
+            lines.append("Landed - waiting to be saved.")
+        elif tracker.get("state") == "BLOCK" and tracker.get("block_start_time"):
+            started = datetime.fromtimestamp(tracker["block_start_time"])
+            minutes = int((datetime.now() - started).total_seconds() // 60)
+            lines.append(f"Block started {started:%H:%M} ({minutes // 60}h {minutes % 60:02d}m ago), "
+                         f"{tracker.get('distance_nm') or 0:,.0f} nm flown.")
+        else:
+            lines.append("Dispatched - not started yet.")
+        lines.append("\nResume carries on tracking it. If your sim closed too, choose "
+                     "Discard (no penalty) - resuming would see the aircraft somewhere else.")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Flight in progress")
+        box.setIcon(QMessageBox.Question)
+        box.setText("The app closed during a flight.")
+        box.setInformativeText("\n".join(lines))
+        resume = box.addButton("Resume", QMessageBox.AcceptRole)
+        box.addButton("Discard", QMessageBox.DestructiveRole)
+        box.setDefaultButton(resume)
+        box.exec()
+
+        if box.clickedButton() is not resume:
+            self.controller.clear_active_flight()
+            return
+        self._resume_flight(saved)
+
+    def _resume_flight(self, saved):
+        ui_state = self.controller.restore_active_flight(saved)
+        self.plan = saved["dispatch"]["plan"]
+        self._set_fetch_status("Resumed the flight in progress.", PALETTE["text_secondary"])
+        self._refresh_dispatch_ui()
+
+        live_map_page = self._live_map_page()
+        if hasattr(live_map_page, "restore_track"):
+            live_map_page.restore_track(ui_state.get("track"))
+
+        if self.controller.pending_flight_event is not None:
+            self.save_button.setVisible(True)
+        elif not self.timer.isActive():
+            self._toggle_monitoring()
 
     def _set_network_label(self, text, color):
         self.network_label.setText(text)

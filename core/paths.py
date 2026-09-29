@@ -54,6 +54,7 @@ USER_DATA_DIR = _user_data_dir()
 DB_PATH = os.path.join(USER_DATA_DIR, "acars.db")
 AIRCRAFT_IMAGE_DIR = os.path.join(USER_DATA_DIR, "aircraft")
 LOG_PATH = os.path.join(USER_DATA_DIR, "acars.log")
+ACTIVE_FLIGHT_PATH = os.path.join(USER_DATA_DIR, "active_flight.json")
 
 _LEGACY_DB_PATH = os.path.join(RESOURCE_DIR, "data", "acars.db")
 _LEGACY_IMAGE_DIR = os.path.join(RESOURCE_DIR, "assets", "aircraft")
