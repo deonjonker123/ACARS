@@ -1,6 +1,6 @@
 # Tailwind ACARS
 
-A flight-tracking and logbook app for the **Tailwind** virtual airline. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Tailwind records the whole thing automatically: block times, route, landing rate and flight hours. It also tracks your rank.
+A flight-tracking and logbook app for flight simulation. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Tailwind records the whole thing automatically: block times, route, landing rate and flight hours. It also tracks your rank.
 
 Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
@@ -14,7 +14,7 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
 > Windows SmartScreen may warn you that the installer is from an unknown publisher, because it isn't code-signed. Click **More info → Run anyway**.
 
-**Updating:** when a new version is out, the sidebar shows an *Update available* link. Download the new installer and run it over the top. Your logbook is kept.
+**Updating:** when a new version is out, the sidebar shows an *Update available* link. Download the new installer and run it over the top.
 
 **Uninstalling:** use *Settings → Apps* in Windows. The uninstaller asks whether to delete your pilot data too. The default is to keep it.
 
@@ -42,7 +42,7 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 - **Hard landings:** a touchdown harder than **-800 fpm** rejects the flight. It stays in the logbook as rejected, its hours don't count, and your rejection count goes up.
 - **Landing rate** is sampled 20 times per second around touchdown, so what you see is what you actually hit.
 - **Online flights:** if you dispatch on VATSIM or IVAO, you must be connected to that network for at least half of the flight for it to count as online. If the network's data feed can't be reached, or your internet drops, that time isn't held against you. Your hours are always logged either way.
-- **Crashes:** if the app or the PC crashes mid-flight, Tailwind offers to **resume** the flight on next start.
+- **Crashes:** if the app, simulator, or the PC crashes mid-flight, Tailwind offers to **resume** the flight on next start.
 
 ### Ranks
 
@@ -104,16 +104,6 @@ python build.py
 - `dist\Tailwind-Setup-<version>.exe` is the installer. It's only built if [Inno Setup](https://jrsoftware.org/isdl.php) is installed.
 
 Without the `SimConnect` package, the build supports X-Plane only.
-
-### Releasing
-
-1. Bump `APP_VERSION` in `version.py`.
-2. Run `python build.py`.
-3. On GitHub, create a release tagged `vX.Y.Z` and attach `Tailwind-Setup-X.Y.Z.exe`.
-
-Running copies pick up the new release from its tag on their next start.
-
----
 
 ## Licence
 
