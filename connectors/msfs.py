@@ -25,6 +25,7 @@ on-ground vertical speed. read() hands them over in data["touchdowns"]
 import math
 import re
 import threading
+import time
 
 from SimConnect import SimConnect, AircraftRequests
 
@@ -79,7 +80,7 @@ _RADIAN_KEYS = {"heading_true"}
 
 SAMPLE_INTERVAL_S = 0.05
 TOUCHDOWN_G_SAMPLES = 10
-
+MIN_AIRBORNE_S = 1.0
 
 def _degrees(radians):
     return math.degrees(radians) if radians is not None else None
@@ -110,6 +111,7 @@ class _TouchdownSampler(threading.Thread):
         self._open = None
         self._open_samples_left = 0
         self._was_on_ground = None
+        self._airborne_since = None
         self._last_airborne_vs = None
         self._error_reported = False
 
@@ -133,10 +135,14 @@ class _TouchdownSampler(threading.Thread):
         if self._open is not None:
             self._track_touchdown_g()
 
+        now = time.monotonic()
         if not on_ground:
+            if self._was_on_ground is not False:
+                self._airborne_since = now
             if vs is not None:
                 self._last_airborne_vs = vs
-        elif self._was_on_ground is False and self._last_airborne_vs is not None:
+        elif (self._was_on_ground is False and self._last_airborne_vs is not None
+              and self._airborne_since is not None and now - self._airborne_since >= MIN_AIRBORNE_S):
             readings = [self._last_airborne_vs] + ([vs] if vs is not None else [])
             self._open_touchdown(min(readings))
         self._was_on_ground = on_ground

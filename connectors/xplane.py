@@ -47,6 +47,7 @@ FAST_HZ = 20
 NORMAL_HZ = 5
 TEXT_HZ = 1
 TOUCHDOWN_G_WINDOW_S = 0.5
+MIN_AIRBORNE_S = 1.0
 
 M_TO_FT = 3.28084
 MS_TO_KT = 1.943844
@@ -141,6 +142,7 @@ class XPlaneConnector:
         self._touchdowns = []
         self._open = None
         self._open_since = None
+        self._airborne_since = None
         self._was_on_ground = None
         self._last_airborne_vs = None
 
@@ -197,6 +199,8 @@ class XPlaneConnector:
         raw["on_ground"] = 1.0 if raw["on_ground"] >= 0.5 else 0.0
         if raw["bank"] is not None:
             raw["bank"] = abs(raw["bank"])
+        if raw["airspeed_indicated"] is not None:
+            raw["airspeed_indicated"] = max(0.0, raw["airspeed_indicated"])
         raw["engine_running"] = bool(raw["eng1_combustion"]) or bool(raw.get("eng2_combustion"))
         if raw["gear_handle_position"] is not None:
             raw["gear_handle_position"] = int(round(raw["gear_handle_position"]))
@@ -267,10 +271,14 @@ class XPlaneConnector:
         if on_ground is None:
             return
         on_ground = on_ground >= 0.5
+        now = time.monotonic()
         if not on_ground:
+            if self._was_on_ground is not False:
+                self._airborne_since = now
             if vs is not None:
                 self._last_airborne_vs = vs
-        elif self._was_on_ground is False and self._last_airborne_vs is not None:
+        elif (self._was_on_ground is False and self._last_airborne_vs is not None
+              and self._airborne_since is not None and now - self._airborne_since >= MIN_AIRBORNE_S):
             readings = [self._last_airborne_vs] + ([vs] if vs is not None else [])
             self._open_touchdown(min(readings))
         self._was_on_ground = on_ground
@@ -282,13 +290,14 @@ class XPlaneConnector:
             self._close_touchdown()
         values = self._values
         bank = values.get("bank")
+        ias = values.get("airspeed_indicated")
         gs = values.get("ground_velocity")
         self._open = {
             "vs": vs,
             "g": values.get("g_force"),
             "bank": abs(bank) if bank is not None else None,
             "pitch": values.get("pitch"),
-            "ias": values.get("airspeed_indicated"),
+            "ias": max(0.0, ias) if ias is not None else None,
             "gs": gs * MS_TO_KT if gs is not None else None,
         }
         self._open_since = time.monotonic()
