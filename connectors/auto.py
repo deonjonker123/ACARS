@@ -73,23 +73,23 @@ class AutoConnector:
                 self._use(msfs)
                 return
 
-            if self._simconnect_ruled_out(msfs):
-                try:
-                    self._fsuipc.connect()
-                except Exception:
-                    self._quietly_disconnect(self._fsuipc)
-                else:
-                    self._use(self._fsuipc)
-                    return
+        if self._simconnect_ruled_out(msfs):
+            try:
+                self._fsuipc.connect()
+            except Exception:
+                self._quietly_disconnect(self._fsuipc)
+            else:
+                self._use(self._fsuipc)
+                return
 
-            raise ConnectionError("No sim found - looking for MSFS, P3D / FSX and X-Plane.")
+        raise ConnectionError("No sim found - looking for MSFS, P3D / FSX and X-Plane.")
 
-        @staticmethod
-        def _simconnect_ruled_out(msfs):
-            """FSUIPC is only tried once SimConnect has been checked and can't be
-            used (or isn't installed), so MSFS - which can run FSUIPC7 too -
-            still connects through SimConnect."""
-            return msfs is None or msfs.simconnect_check not in (None, "open")
+    @staticmethod
+    def _simconnect_ruled_out(msfs):
+        """FSUIPC is only tried once SimConnect has been checked and can't be
+        used (or isn't installed), so MSFS - which can run FSUIPC7 too -
+        still connects through SimConnect."""
+        return msfs is None or msfs.simconnect_check not in (None, "open")
 
     def read(self):
         if self._active is None:
