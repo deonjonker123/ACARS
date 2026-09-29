@@ -455,7 +455,7 @@ class HomePage(QWidget):
 
         if not self._resume_checked:
             self._resume_checked = True
-            QTimer.singleShot(0, self._offer_resume)
+            QTimer.singleShot(0, self._startup_checks)
 
     def _build_zone2(self):
         card, layout = _card("FLIGHT HISTORY")
@@ -765,6 +765,39 @@ class HomePage(QWidget):
         live_map_page = self._live_map_page()
         track = live_map_page.track_state() if hasattr(live_map_page, "track_state") else []
         self.controller.save_active_flight(ui_state={"track": track})
+
+    def _startup_checks(self):
+        """Once the window is up: offer to resume an interrupted flight,
+        then welcome a new pilot whose profile isn't set up yet."""
+        self._offer_resume()
+        self._offer_welcome()
+
+    def _offer_welcome(self):
+        """New pilot (no name or SimBrief ID yet): point them at Settings."""
+        pilot = self.db.get_pilot() or {}
+        missing = []
+        if not (pilot.get("name") or "").strip():
+            missing.append("your pilot name")
+        if not (pilot.get("simbrief_id") or "").strip():
+            missing.append("your SimBrief Pilot ID")
+        if not missing:
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Welcome to Tailwind")
+        box.setIcon(QMessageBox.Information)
+        box.setText("Welcome aboard!")
+        box.setInformativeText(
+            f"Before your first flight, set {' and '.join(missing)} in Settings.\n\n"
+            "Your SimBrief Pilot ID is the number on simbrief.com under Account Settings - "
+            "Tailwind fetches your flight plans with it. VATSIM and IVAO IDs are optional."
+        )
+        box.addButton("Open Settings", QMessageBox.AcceptRole)
+        box.exec()
+
+        main_window = self.window()
+        if hasattr(main_window, "navigate_to"):
+            main_window.navigate_to("settings")
 
     def _offer_resume(self):
         """At startup: if the app closed during a flight, offer to carry on."""
