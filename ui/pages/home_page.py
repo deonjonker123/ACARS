@@ -881,7 +881,7 @@ class HomePage(QWidget):
         result = self.controller.tick()
         self.sim_label.setText(f"Sim: {result.get('sim_name', 'Unknown')}")
 
-        self.monitor_button.setEnabled(result["state"] != "BLOCK")
+        #self.monitor_button.setEnabled(result["state"] != "BLOCK")
 
         rejection = next((e for e in result["events"] if e["type"] == "flight_rejected"), None)
         if rejection is not None:
