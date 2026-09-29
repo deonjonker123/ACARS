@@ -10,7 +10,7 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
 1. Go to [**Releases**](https://github.com/deonjonker123/ACARS/releases) and download the latest `Tailwind-Setup-x.y.z.exe`.
 2. Run it. It installs just for you, so there's no admin prompt. You can add a desktop shortcut during setup.
-3. Start Tailwind. On first launch it asks you to fill in your pilot profile.
+3. Start Tailwind. On first launch it asks you to fill in your pilot profile. Tailwind comes with a sample fleet. This can be updated or deleted and new aircraft can be added to suit your needs.
 
 > Windows SmartScreen may warn you that the installer is from an unknown publisher, because it isn't code-signed. Click **More info → Run anyway**.
 
@@ -25,8 +25,8 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 1. **Settings.** Enter your pilot name and **SimBrief Pilot ID** (SimBrief → Account Settings → Pilot ID). If you fly online, also add your VATSIM or IVAO ID. A home airport is optional.
 2. **Plan** your flight on [SimBrief](https://www.simbrief.com) as usual.
 3. **Dispatch.** Tailwind loads your latest SimBrief plan. Pick an aircraft from the fleet and your network (Offline, VATSIM or IVAO), then dispatch.
-4. **Fly.** Start the sim. Tailwind finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
-5. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
+5. **Fly.** Start the sim. Tailwind finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
+6. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
    - **Submit Flight:** Tailwind checks the flight against the rules below and tells you whether it was **accepted** or **rejected**, with your landing grade. Press **View Debrief** to see how it went.
    - **Discard Flight:** throws the flight away. Nothing is logged, and nothing counts for or against you.
 
@@ -36,7 +36,8 @@ Changed your mind mid-flight? **Cancel Flight** stops tracking and clears the pl
 
 | Sim | How Tailwind connects |
 |---|---|
-| MSFS 2020 / 2024, Prepar3D | SimConnect, automatic |
+| MSFS 2020 / 2024 | SimConnect, automatic |
+| Prepar3D | FSUIPC (free version is good enough, automatic. The sim must run on the same PC |
 | X-Plane 11 / 12 | UDP on port 49000 (X-Plane's default), automatic. The sim must run on the same PC. |
 
 ---
