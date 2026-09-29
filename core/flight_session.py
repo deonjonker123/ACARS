@@ -20,16 +20,18 @@ Flight rules (a flight only exists because of a dispatched flight plan):
     fleet and the pilot rated for it.
   - Block time only starts (engine start) within ARMING_RADIUS_NM of the
     planned origin. Anywhere else, engine starts are ignored.
-  - At block end, the aircraft must be within ARMING_RADIUS_NM of the
-    planned destination or the planned alternate. Otherwise the flight is
-    REJECTED: pilot's rejected count +1, nothing logged, no hours added.
-  - A landing harder than HARD_LANDING_LIMIT_FPM (the flight's hardest
-    touchdown, see core/flight_state.py) also REJECTS the flight, the
-    same way. Exactly the limit is accepted; a flight with no captured
-    landing rate isn't judged on it.
-  - cancel_dispatch() stops tracking and clears the plan - no penalty.
-  - The sim's own tail number (ATC ID) is not checked; the flight is
-    logged against the dispatched airframe.
+    - At block end the flight is complete and waits for the pilot:
+    submit_pending_flight() or discard_pending_flight(). Nothing is
+    judged until Submit.
+  - On Submit, the aircraft must have parked within ARMING_RADIUS_NM of
+    the planned destination or the planned alternate. Otherwise the
+    flight is REJECTED: pilot's rejected count +1, nothing logged, no
+    hours added.
+  - A landing harder than HARD_LANDING_LIMIT_FPM also REJECTS the flight,
+    the same way. Exactly the limit is accepted; a flight with no
+    captured landing rate isn't judged on it.
+  - Discard (a completed flight) and cancel_dispatch() (any time) stop
+    tracking and clear the plan - nothing logged, no penalty.
   - Network: the pilot declares it at dispatch (OFFLINE, VATSIM or IVAO).
     For VATSIM/IVAO the UI runs core.networks.check_online() for that
     network in the background about once a minute and hands each result
@@ -322,11 +324,7 @@ class FlightSessionController:
         events = list(result["events"])
         for event in result["events"]:
             if event["type"] == "block_end":
-                rejection = self._check_arrival(event)
-                if rejection is not None:
-                    events.append(rejection)
-                else:
-                    self.pending_flight_event = event
+                self.pending_flight_event = event
 
         if self.dispatch_info is not None and any(
                 e["type"] in ("block_start", "airborne", "landing", "block_end") for e in events):
@@ -335,7 +333,7 @@ class FlightSessionController:
         if result["state"] == "BLOCK":
             arming = None
         elif self.pending_flight_event is not None:
-            arming = "Flight complete - save it."
+            arming = "Flight complete - submit or discard it."
 
         return {
             "connected": True,
@@ -351,11 +349,11 @@ class FlightSessionController:
         }
 
     def _check_arrival(self, event):
-        """At block end: the aircraft must be within range of the planned
-        destination or alternate (noted in event["arrival_icao"]), and the
-        landing no harder than HARD_LANDING_LIMIT_FPM. Returns None if the
-        flight is accepted; otherwise rejects it and returns a
-        "flight_rejected" event."""
+        """The flight rules, checked on Submit: the aircraft must have parked
+        within range of the planned destination or alternate (noted in
+        event["arrival_icao"]), and landed no harder than
+        HARD_LANDING_LIMIT_FPM. Returns None if the flight is accepted,
+        otherwise the user-readable reason it's rejected."""
         plan = self.dispatch_info["plan"]
         lat, lon = event.get("arr_lat"), event.get("arr_lon")
 
@@ -370,49 +368,63 @@ class FlightSessionController:
             where = f"{dist:,.1f} nm from {dest['icao']}" if dist is not None else f"away from {dest['icao']}"
             alt = plan.get("alternate")
             alt_text = f" (ALT {alt['icao']})" if alt else ""
-            return self._reject(event, f"Landed {where}{alt_text} - flight rejected.")
+            return f"Parked {where}{alt_text}, not at the planned destination or alternate."
 
         landing_vs = event.get("landing_vs")
         if isinstance(landing_vs, (int, float)) and landing_vs < HARD_LANDING_LIMIT_FPM:
-            return self._reject(
-                event,
-                f"Landed at {landing_vs:,.0f} fpm (limit {HARD_LANDING_LIMIT_FPM:,} fpm) - flight rejected.",
-            )
+            return f"Landed at {landing_vs:,.0f} fpm (limit {HARD_LANDING_LIMIT_FPM:,} fpm)."
         return None
 
-    def _reject(self, event, reason):
-        """Rejects the flight: rejected count +1, nothing logged, dispatch
-        ends. Returns the "flight_rejected" event for the UI."""
-        self.db.reject_flight()
-        self.dispatch_info = None
-        self._reset_network_checks()
-        self.clear_active_flight()
-        return {"type": "flight_rejected", "time": event.get("time"), "reason": reason}
+    def submit_pending_flight(self):
+        """Call when the pilot presses Submit. Checks the completed flight
+        against the flight rules, then either logs it (accepted) or counts
+        a rejection (nothing logged, no hours). Either way the dispatch
+        ends. Returns the outcome for the UI, or None if nothing was pending:
 
-    def record_pending_flight(self):
-        """Call this when the pilot presses Save. Writes the held
-        block_end event to the database and returns the new flight's id,
-        or None if there was nothing pending. Clears the dispatch on
-        success.
+            {"accepted": True, "flight_id", "flight_number", "departure",
+             "arrival", "registration", "block_hours", "landing_vs", "network"}
+            {"accepted": False, "reason", "flight_number", "departure",
+             "arrival", "registration", "block_hours", "landing_vs"}
 
-        Raises FlightSaveBlocked (flight stays pending) if the dispatched
-        airframe was removed from the fleet or the pilot isn't rated for
-        it any more."""
-        if self.pending_flight_event is None or self.dispatch_info is None:
+        Raises FlightSaveBlocked (flight stays pending) if an accepted
+        flight can't be logged: the dispatched airframe was removed from
+        the fleet or the pilot isn't rated for it any more."""
+        event = self.pending_flight_event
+        if event is None or self.dispatch_info is None:
             return None
-        flight_id = self._record_flight(self.pending_flight_event)
 
-        self.pending_flight_event = None
-        self.dispatch_info = None
-        self._reset_network_checks()
-        self.clear_active_flight()
-        return flight_id
+        plan = self.dispatch_info["plan"]
+        reason = self._check_arrival(event)
+        outcome = {
+            "accepted": reason is None,
+            "flight_number": plan.get("flight_number"),
+            "departure": plan["origin"]["icao"],
+            "arrival": event.get("arrival_icao") or plan["destination"]["icao"],
+            "registration": self.dispatch_info["registration"],
+            "block_hours": event.get("block_hours"),
+            "landing_vs": event.get("landing_vs"),
+        }
+
+        if reason is None:
+            outcome["network"] = self.network_for_log()
+            outcome["flight_id"] = self._record_flight(event)
+        else:
+            outcome["reason"] = reason
+            self.db.reject_flight()
+
+        self._end_dispatch()
+        return outcome
 
     def discard_pending_flight(self):
-        """Drops the pending flight without saving it - e.g. if the pilot
-        decides a landing shouldn't count. Not currently wired to any UI
-        button, but available if you want a 'Discard' option alongside Save."""
+        """Call when the pilot presses Discard: drops the completed flight
+        and ends the dispatch. Nothing is logged, nothing counts."""
+        self.cancel_dispatch()
+
+    def _end_dispatch(self):
         self.pending_flight_event = None
+        self.dispatch_info = None
+        self._reset_network_checks()
+        self.clear_active_flight()
 
     def _record_flight(self, event):
         """
@@ -523,7 +535,7 @@ if __name__ == "__main__":
     fly([tick(33.9425, -118.408, False, 1.0), tick(33.9425, -118.408, True, 1.0),
          tick(34.0, -118.43, True, 0.0, 500), tick(34.0158, -118.4513, True, 1.0, -120),
          tick(34.0158, -118.4513, False, 1.0)])
-    print("  saved flight id:", controller.record_pending_flight())
+    print("  saved flight id:", controller.submit_pending_flight())
 
     print("\n3) KLAX -> KSNA (planned alternate) - saved:")
     controller.dispatch(plan, "N104TW")

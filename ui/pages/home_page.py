@@ -398,7 +398,6 @@ class HomePage(QWidget):
         self._stop_monitoring()
         self.plan = None
         self._set_fetch_status("No flight plan loaded.", PALETTE["text_secondary"])
-        self.save_button.setVisible(False)
         self._refresh_dispatch_ui()
 
     def _refresh_dispatch_ui(self):
@@ -412,7 +411,9 @@ class HomePage(QWidget):
         self.network_combo.setEnabled(self.plan is not None and not dispatched)
         self.dispatch_button.setEnabled(self.plan is not None and not dispatched)
         self.dispatch_button.setVisible(not dispatched)
-        self.cancel_button.setVisible(dispatched)
+        pending = self.controller.pending_flight_event is not None
+        self.cancel_button.setVisible(dispatched and not pending)
+        self.complete_row.setVisible(dispatched and pending)
 
         if dispatched:
             self.dispatch_status.setText(
@@ -614,11 +615,19 @@ class HomePage(QWidget):
         self.monitor_button.clicked.connect(self._toggle_monitoring)
         layout.addWidget(self.monitor_button)
 
-        self.save_button = QPushButton("Save Flight")
-        self.save_button.setCursor(Qt.PointingHandCursor)
-        self.save_button.setVisible(False)
-        self.save_button.clicked.connect(self._save_pending_flight)
-        layout.addWidget(self.save_button)
+        self.complete_row = QWidget()
+        complete_layout = QHBoxLayout(self.complete_row)
+        complete_layout.setContentsMargins(0, 0, 0, 0)
+        self.submit_button = QPushButton("Submit Flight")
+        self.submit_button.setCursor(Qt.PointingHandCursor)
+        self.submit_button.clicked.connect(self._submit_flight)
+        complete_layout.addWidget(self.submit_button, stretch=1)
+        self.discard_button = QPushButton("Discard Flight")
+        self.discard_button.setCursor(Qt.PointingHandCursor)
+        self.discard_button.clicked.connect(self._discard_flight)
+        complete_layout.addWidget(self.discard_button, stretch=1)
+        self.complete_row.setVisible(False)
+        layout.addWidget(self.complete_row)
 
         self.status_label = QLabel("Not monitoring")
         self.status_label.setFont(font(10))
@@ -629,11 +638,6 @@ class HomePage(QWidget):
         self.arming_label.setFont(font(9))
         self.arming_label.setWordWrap(True)
         layout.addWidget(self.arming_label)
-
-        self.state_label = QLabel("State: —")
-        self.state_label.setFont(font_label(9))
-        self.state_label.setStyleSheet(f"color: {PALETTE['text_muted']};")
-        layout.addWidget(self.state_label)
 
         self.sim_label = QLabel("")
         self.sim_label.setFont(font_label(8))
@@ -758,7 +762,6 @@ class HomePage(QWidget):
         self.status_label.setText("Not monitoring")
         self.status_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
         self.arming_label.setText("")
-        self.state_label.setText("State: —")
 
     def _save_flight_now(self):
         """Saves the flight in progress, with the Live Map's track."""
@@ -850,9 +853,7 @@ class HomePage(QWidget):
         if hasattr(live_map_page, "restore_track"):
             live_map_page.restore_track(ui_state.get("track"))
 
-        if self.controller.pending_flight_event is not None:
-            self.save_button.setVisible(True)
-        elif not self.timer.isActive():
+        if self.controller.pending_flight_event is None and not self.timer.isActive():
             self._toggle_monitoring()
 
     def _set_network_label(self, text, color):
@@ -914,36 +915,22 @@ class HomePage(QWidget):
         result = self.controller.tick()
         self.sim_label.setText(f"Sim: {result.get('sim_name', 'Unknown')}")
 
-        #self.monitor_button.setEnabled(result["state"] != "BLOCK")
-
-        rejection = next((e for e in result["events"] if e["type"] == "flight_rejected"), None)
-        if rejection is not None:
-            self._end_of_dispatch()
-            main_window = self.window()
-            if hasattr(main_window, "update_pilot_data"):
-                main_window.update_pilot_data(self.db.get_pilot())
-            QMessageBox.critical(self, "Flight Rejected", rejection["reason"])
-            return
-
         self._send_live(result)
 
         if not result["connected"]:
             self.status_label.setText("Not connected")
             self.status_label.setStyleSheet(f"color: {PALETTE['negative']};")
-            self.state_label.setText("State: —")
             self._set_arming("")
             return
 
         if not result["has_data"]:
             self.status_label.setText("Waiting for active flight...")
             self.status_label.setStyleSheet(f"color: {PALETTE['warning']};")
-            self.state_label.setText("State: —")
             self._set_arming("")
             return
 
         self.status_label.setText("Receiving live data")
         self.status_label.setStyleSheet(f"color: {PALETTE['positive']};")
-        self.state_label.setText(f"State: {result['state']}")
         self._set_arming(result.get("arming"))
 
         data = result["data"]
@@ -993,19 +980,64 @@ class HomePage(QWidget):
         self.raw_value_labels["flaps_handle_index"].setText(_fmt(data.get("flaps_handle_index")))
         self.raw_value_labels["gear_handle_position"].setText(_fmt(data.get("gear_handle_position")))
 
-        self.save_button.setVisible(result["pending_flight"])
+        if result["pending_flight"] == self.complete_row.isHidden():
+            self._refresh_dispatch_ui()
 
-    def _save_pending_flight(self):
+    def _submit_flight(self):
         try:
-            flight_id = self.controller.record_pending_flight()
+            outcome = self.controller.submit_pending_flight()
         except FlightSaveBlocked as e:
-            QMessageBox.warning(self, "Flight Not Saved", str(e))
+            QMessageBox.warning(self, "Flight Not Submitted", str(e))
             return
-        if flight_id is None:
+        if outcome is None:
             return
 
         self._end_of_dispatch()
+        self._refresh_after_flight()
+        self._show_outcome(outcome)
 
+    def _discard_flight(self):
+        answer = QMessageBox.question(
+            self, "Discard Flight",
+            "Discard this flight? It won't be logged and won't count for or against you.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.controller.discard_pending_flight()
+        self._end_of_dispatch()
+
+    def _show_outcome(self, outcome):
+        """The popup after Submit: what happened to the flight."""
+        route = f"{outcome.get('flight_number') or 'Flight'}   {outcome['departure']} → {outcome['arrival']}"
+        hours = outcome.get("block_hours")
+        landing = outcome.get("landing_vs")
+        details = [
+            f"Aircraft: {outcome['registration']}",
+            f"Block time: {fmt_hm(hours) if hours is not None else '—'}",
+            f"Landing: {landing:,.0f} fpm" if isinstance(landing, (int, float)) else "Landing: —",
+        ]
+
+        box = QMessageBox(self)
+        if outcome["accepted"]:
+            box.setWindowTitle("Flight Accepted")
+            box.setIcon(QMessageBox.Information)
+            box.setText(f"{route}\n\nFlight accepted.")
+            details.append(f"Logged as: {outcome.get('network') or 'OFFLINE'}")
+            details.append("\nAdded to your logbook, and the hours count toward your rank.")
+        else:
+            box.setWindowTitle("Flight Rejected")
+            box.setIcon(QMessageBox.Warning)
+            box.setText(f"{route}\n\nFlight rejected: {outcome['reason']}")
+            rejected = (self.db.get_pilot() or {}).get("total_rejected")
+            details.append("\nNothing was logged and no hours were added."
+                           + (f" Rejected flights: {rejected}." if rejected is not None else ""))
+        box.setInformativeText("\n".join(details))
+        box.exec()
+
+    def _refresh_after_flight(self):
+        """A flight was submitted: update the header, logbook, fleet and
+        the history map."""
         main_window = self.window()
         if hasattr(main_window, "update_pilot_data"):
             main_window.update_pilot_data(self.db.get_pilot())
@@ -1019,7 +1051,6 @@ class HomePage(QWidget):
             aircraft_page.refresh()
 
         self.refresh_history()
-
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication

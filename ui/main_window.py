@@ -18,12 +18,13 @@ Usage:
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStackedWidget, QFrame, QProgressBar
 )
 
-from PySide6.QtCore import Qt, QObject, Signal
+from PySide6.QtCore import Qt, QObject, Signal, QTimer, QSize
 from PySide6.QtGui import QPixmap, QFont
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,11 +35,13 @@ from version import APP_VERSION
 from core.paths import APP_NAME
 from core.updates import check_for_update
 from ui.about_dialog import AboutDialog
+from ui.icons import make_icon, NAV_ICONS
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 
 SIDEBAR_WIDTH = 220
+NAV_ICON_SIZE = 18
 
 class _UpdateNotifier(QObject):
     """Carries the result of the background update check (core/updates.py)
@@ -62,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self.pilot_data = pilot_data or {}
         self._nav_buttons = {}
+        self._nav_icons = {}
         self._page_titles = {}
 
         central = QWidget()
@@ -112,6 +116,16 @@ class MainWindow(QMainWindow):
             logo_label.setStyleSheet(f"color: {PALETTE['text_primary']};")
             logo_layout.addWidget(logo_label)
         layout.addWidget(logo_container)
+        self.utc_clock = QLabel()
+        self.utc_clock.setFont(font_label(11))
+        self.utc_clock.setAlignment(Qt.AlignCenter)
+        self.utc_clock.setToolTip("Current time, UTC (Zulu)")
+        self.utc_clock.setContentsMargins(0, 0, 0, 12)
+        layout.addWidget(self.utc_clock)
+        self._update_clock()
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start(1000)
 
         self.nav_items = [
             ("home", "Dashboard"),
@@ -122,7 +136,7 @@ class MainWindow(QMainWindow):
             ("ranks", "Ranks"),
         ]
         for key, label in self.nav_items:
-            btn = QPushButton(label)
+            btn = QPushButton(f"  {label}")
             btn.setObjectName("NavItem")
             btn.setProperty("active", False)
             btn.setCursor(Qt.PointingHandCursor)
@@ -130,6 +144,7 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(lambda checked=False, k=key: self.navigate_to(k))
             layout.addWidget(btn)
             self._nav_buttons[key] = btn
+            self._add_nav_icon(key, btn)
 
         layout.addStretch()
         divider = QFrame()
@@ -138,7 +153,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(divider)
         layout.addSpacing(8)
 
-        settings_btn = QPushButton("Settings")
+        settings_btn = QPushButton("  Settings")
         settings_btn.setObjectName("NavItem")
         settings_btn.setProperty("active", False)
         settings_btn.setCursor(Qt.PointingHandCursor)
@@ -146,6 +161,7 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(lambda checked=False: self.navigate_to("settings"))
         layout.addWidget(settings_btn)
         self._nav_buttons["settings"] = settings_btn
+        self._add_nav_icon("settings", settings_btn)
 
         layout.addSpacing(8)
         version_button = QPushButton(f"v{APP_VERSION}")
@@ -168,6 +184,24 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.update_label)
 
         return sidebar
+
+    def _add_nav_icon(self, key, button):
+        """The nav item's icon: grey normally, gold on the active page
+        (swapped in navigate_to)."""
+        name = NAV_ICONS[key]
+        self._nav_icons[key] = (
+            make_icon(name, PALETTE["text_secondary"], NAV_ICON_SIZE),
+            make_icon(name, PALETTE["accent"], NAV_ICON_SIZE),
+        )
+        button.setIcon(self._nav_icons[key][0])
+        button.setIconSize(QSize(NAV_ICON_SIZE, NAV_ICON_SIZE))
+
+    def _update_clock(self):
+        now = datetime.now(timezone.utc)
+        self.utc_clock.setText(
+            f'<span style="color:{PALETTE["text_primary"]};">{now:%H:%M:%S}</span>'
+            f'&nbsp;<span style="color:{PALETTE["text_muted"]};">UTC</span>'
+        )
 
     def _show_update(self, release):
         """Shows the "Update available" link under the version, if the
@@ -394,6 +428,8 @@ class MainWindow(QMainWindow):
 
         for k, btn in self._nav_buttons.items():
             btn.setProperty("active", k == key)
+            if k in self._nav_icons:
+                btn.setIcon(self._nav_icons[k][1 if k == key else 0])
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 

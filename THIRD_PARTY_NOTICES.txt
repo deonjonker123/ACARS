@@ -65,10 +65,8 @@ given.
    Licence: SIL Open Font License 1.1
    https://github.com/octaviopardo/EBGaramond12
 
-9. Material Design "flight" icon (Google), drawn as the aircraft marker on
-   the Live Map
-   Licence: Apache License 2.0
-   https://github.com/google/material-design-icons
+9. Material Design icons (Google): the aircraft marker on the Live Map
+   and the sidebar navigation icons
 
 10. OurAirports airport data (data/airports.csv)
     Released into the public domain - https://ourairports.com/data/
