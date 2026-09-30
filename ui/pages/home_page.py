@@ -43,7 +43,7 @@ import os
 from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
-    QMessageBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import QTimer, Qt, QThread, Signal, QSettings
 from PySide6.QtGui import QColor
@@ -53,6 +53,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from ui.theme import PALETTE, GRADE_COLORS, font, font_heading, font_label
 from ui.widgets.plan_summary import PlanSummary, fmt_hm
 from ui.widgets.map_view import MapView
+from ui.widgets.dialogs import inform, confirm, choose, NEUTRAL, DANGER, POSITIVE
 from ui.pages.logbook_page import _format_date
 from core.flight_session import FlightSessionController, FlightSaveBlocked, FlightDispatchError
 from core.simbrief import fetch_latest_ofp, SimBriefError
@@ -73,21 +74,7 @@ HISTORY_ROW_HEIGHT = 28
 HISTORY_HEADER_HEIGHT = 30
 HISTORY_COLUMNS = ["DATE", "FLIGHT", "DEP → ARR", "REG", "DISTANCE", "GRADE", "STATUS"]
 
-_INPUT_STYLE = f"""
-    QComboBox {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        border: 1px solid {PALETTE['border']};
-        padding: 6px 8px;
-    }}
-    QComboBox:focus {{ border-color: {PALETTE['accent_dim']}; }}
-    QComboBox QAbstractItemView {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        selection-background-color: {PALETTE['accent_bg']};
-        selection-color: {PALETTE['accent']};
-    }}
-"""
+_INPUT_STYLE = ""
 
 
 def _haversine_nm(lat1, lon1, lat2, lon2):
@@ -321,7 +308,7 @@ class HomePage(QWidget):
             network = self.network_combo.currentData() or "OFFLINE"
             self.controller.dispatch(self.plan, self.aircraft_combo.currentData(), network=network)
         except FlightDispatchError as e:
-            QMessageBox.warning(self, "Not Dispatched", str(e))
+            inform(self, "Not Dispatched", str(e))
             return
         QSettings("Tailwind", "ACARS").setValue("last_network", network)
         self._refresh_dispatch_ui()
@@ -351,12 +338,9 @@ class HomePage(QWidget):
         in_progress = (self.controller.tracker.state == "BLOCK"
                        or self.controller.pending_flight_event is not None)
         if in_progress:
-            answer = QMessageBox.question(
-                self, "Cancel Flight",
-                "Cancel this flight? Tracking stops and nothing will be logged.",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
+            if not confirm(self, "Cancel Flight",
+                           "Cancel this flight? Tracking stops and nothing will be logged.",
+                           "Cancel Flight", cancel_text="Keep Flight"):
                 return
         self.controller.cancel_dispatch()
         self._end_of_dispatch()
@@ -770,17 +754,11 @@ class HomePage(QWidget):
         if not missing:
             return
 
-        box = QMessageBox(self)
-        box.setWindowTitle("Welcome to Tailwind")
-        box.setIcon(QMessageBox.Information)
-        box.setText("Welcome aboard!")
-        box.setInformativeText(
-            f"Before your first flight, set {' and '.join(missing)} in Settings.\n\n"
-            "Your SimBrief Pilot ID is the number on simbrief.com under Account Settings - "
-            "Tailwind fetches your flight plans with it. VATSIM and IVAO IDs are optional."
-        )
-        box.addButton("Open Settings", QMessageBox.AcceptRole)
-        box.exec()
+        choose(self, "Welcome Aboard",
+               f"Before your first flight, set {' and '.join(missing)} in Settings.",
+               [("settings", "Open Settings", POSITIVE)], default="settings", escape="settings",
+               details="Your SimBrief Pilot ID is the number on simbrief.com under Account Settings - "
+                       "Tailwind fetches your flight plans with it. VATSIM and IVAO IDs are optional.")
 
         main_window = self.window()
         if hasattr(main_window, "navigate_to"):
@@ -812,17 +790,10 @@ class HomePage(QWidget):
         lines.append("\nResume carries on tracking it. If your sim closed too, choose "
                      "Discard (no penalty) - resuming would see the aircraft somewhere else.")
 
-        box = QMessageBox(self)
-        box.setWindowTitle("Flight in progress")
-        box.setIcon(QMessageBox.Question)
-        box.setText("The app closed during a flight.")
-        box.setInformativeText("\n".join(lines))
-        resume = box.addButton("Resume", QMessageBox.AcceptRole)
-        box.addButton("Discard", QMessageBox.DestructiveRole)
-        box.setDefaultButton(resume)
-        box.exec()
-
-        if box.clickedButton() is not resume:
+        choice = choose(self, "Flight in Progress", "The app closed during a flight.",
+                        [("discard", "Discard", DANGER), ("resume", "Resume", POSITIVE)],
+                        default="resume", escape="resume", details="\n".join(lines))
+        if choice != "resume":
             self.controller.clear_active_flight()
             return
         self._resume_flight(saved)
@@ -971,7 +942,7 @@ class HomePage(QWidget):
         try:
             outcome = self.controller.submit_pending_flight()
         except FlightSaveBlocked as e:
-            QMessageBox.warning(self, "Flight Not Submitted", str(e))
+            inform(self, "Flight Not Submitted", str(e))
             return
         if outcome is None:
             return
@@ -981,12 +952,9 @@ class HomePage(QWidget):
         self._show_outcome(outcome)
 
     def _discard_flight(self):
-        answer = QMessageBox.question(
-            self, "Discard Flight",
-            "Discard this flight? It won't be logged and won't count for or against you.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+        if not confirm(self, "Discard Flight",
+                       "Discard this flight? It won't be logged and won't count for or against you.",
+                       "Discard", cancel_text="Keep Flight"):
             return
         self.controller.discard_pending_flight()
         self._end_of_dispatch()
@@ -1004,25 +972,19 @@ class HomePage(QWidget):
             f"Landing grade: {grade['letter']} ({grade['score']:.0f}/100)" if grade else "Landing grade: —",
         ]
 
-        box = QMessageBox(self)
         if outcome["accepted"]:
-            box.setWindowTitle("Flight Accepted")
-            box.setIcon(QMessageBox.Information)
-            box.setText(f"{route}\n\nFlight accepted.")
+            title, text = "Flight Accepted", f"{route}\n\nFlight accepted."
             details.append(f"Logged as: {outcome.get('network') or 'OFFLINE'}")
             details.append("\nAdded to your logbook, and the hours count toward your rank.")
         else:
-            box.setWindowTitle("Flight Rejected")
-            box.setIcon(QMessageBox.Warning)
-            box.setText(f"{route}\n\nFlight rejected: {outcome['reason']}")
+            title, text = "Flight Rejected", f"{route}\n\nFlight rejected: {outcome['reason']}"
             rejected = (self.db.get_pilot() or {}).get("total_rejected")
             details.append("\nIt's in your logbook as rejected - no hours were added."
                            + (f" Rejected flights: {rejected}." if rejected is not None else ""))
-        box.setInformativeText("\n".join(details))
-        debrief_button = box.addButton("View Debrief", QMessageBox.ActionRole)
-        box.addButton("Close", QMessageBox.AcceptRole)
-        box.exec()
-        if box.clickedButton() is debrief_button:
+        choice = choose(self, title, text,
+                        [("close", "Close", NEUTRAL), ("debrief", "View Debrief", POSITIVE)],
+                        default="debrief", escape="close", details="\n".join(details))
+        if choice == "debrief":
             self._open_debrief(outcome.get("flight_id"))
 
     def _refresh_after_flight(self):

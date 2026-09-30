@@ -188,7 +188,7 @@ class _TouchdownSampler(threading.Thread):
         self._stop_event.set()
 
 class MSFSConnector:
-    SIM_NAME = "MSFS / P3D (SimConnect)"
+    SIM_NAME = "MSFS (SimConnect)"
 
     def __init__(self):
         self._sm = None

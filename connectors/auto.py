@@ -113,7 +113,7 @@ class AutoConnector:
             return self._xplane.read()
         elif self._active is self._msfs and now - self._last_data > NO_DATA_DROP_S:
             self._drop()
-            raise ConnectionError("No data from MSFS / P3D - looking for a sim again.")
+            raise ConnectionError("No data from MSFS - looking for a sim again.")
         return data
 
     def _try_xplane(self):
@@ -147,7 +147,7 @@ class AutoConnector:
                 self._msfs = MSFSConnector()
             except ImportError as e:
                 self._msfs_unavailable = str(e)
-                print(f"[auto] MSFS / P3D support unavailable ({e}) - X-Plane only.")
+                print(f"[auto] MSFS support unavailable ({e}) - X-Plane only.")
         return self._msfs
 
     def _use(self, connector):

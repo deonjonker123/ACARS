@@ -32,7 +32,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ui.theme import PALETTE, GRADE_COLORS, load_fonts, font, font_heading, font_label, garamond, logo_exists, LOGO_PATH
 from core.pilot import PilotProgress
 from version import APP_VERSION
-from core.paths import APP_NAME
+from core.paths import APP_NAME, ACTIVE_FLIGHT_PATH
+from ui.widgets.dialogs import confirm
 from core.updates import check_for_update
 from ui.about_dialog import AboutDialog
 from ui.icons import make_icon, NAV_ICONS
@@ -41,7 +42,7 @@ from core.landing_grade import letter_for
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 
-SIDEBAR_WIDTH = 220
+SIDEBAR_WIDTH = 320
 NAV_ICON_SIZE = 18
 
 class _UpdateNotifier(QObject):
@@ -63,6 +64,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 860)
+        self.confirm_on_close = True
 
         self.pilot_data = pilot_data or {}
         self._nav_buttons = {}
@@ -428,6 +430,17 @@ class MainWindow(QMainWindow):
         page = self.get_page("debrief")
         if page is not None and page.show_flight(flight_id, return_to=return_to):
             self.navigate_to("debrief")
+
+    def closeEvent(self, event):
+        if self.confirm_on_close:
+            text = "Are you sure you want to exit?"
+            if os.path.exists(ACTIVE_FLIGHT_PATH):
+                text += (f" Your flight in progress is saved - {APP_NAME} will offer to resume it "
+                         f"next time you start.")
+            if not confirm(self, f"Close {APP_NAME}", text, f"Close {APP_NAME}"):
+                event.ignore()
+                return
+        super().closeEvent(event)
 
     def navigate_to(self, key):
         if key not in self._page_titles:

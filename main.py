@@ -30,11 +30,12 @@ from core.paths import (
 )
 from version import APP_VERSION
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
 from ui.theme import load_fonts, build_stylesheet
 from ui.splash import SplashScreen
+from ui.widgets.dialogs import inform
 from ui.main_window import MainWindow
 from ui.pages.logbook_page import LogbookPage
 from ui.pages.home_page import HomePage
@@ -126,10 +127,8 @@ def main():
     except Exception as e:
         traceback.print_exc()
         splash.close()
-        QMessageBox.critical(
-            None, f"{APP_NAME} - Startup Failed",
-            f"Startup failed while: {current.lower()}.\n\n{e}",
-        )
+        inform(None, "Startup Failed", f"{APP_NAME} couldn't start while {current.lower()}.",
+               button_text="Close", details=str(e))
         sys.exit(1)
 
     maps = [window.get_page("home").history_map, window.get_page("live_map").map]

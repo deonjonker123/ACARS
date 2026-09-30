@@ -33,7 +33,7 @@ import uuid
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QScrollArea, QDialog, QLineEdit, QCheckBox, QComboBox, QFileDialog,
-    QMessageBox, QGraphicsOpacityEffect, QFrame
+    QGraphicsOpacityEffect, QFrame
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -41,6 +41,7 @@ from PySide6.QtGui import QPixmap
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, font, font_label, WEIGHT_MEDIUM
+from ui.widgets.dialogs import ThemedDialog, inform, confirm, NEUTRAL, POSITIVE
 from core.db import VALID_CATEGORIES
 from core.pilot import PilotProgress, load_fleet_data
 from core.paths import USER_DATA_DIR, AIRCRAFT_IMAGE_DIR
@@ -62,19 +63,6 @@ CATEGORY_LABELS = {
 }
 
 _INPUT_STYLE = f"""
-    QLineEdit, QComboBox {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        border: 1px solid {PALETTE['border']};
-        padding: 6px 8px;
-    }}
-    QLineEdit:focus, QComboBox:focus {{ border-color: {PALETTE['accent_dim']}; }}
-    QComboBox QAbstractItemView {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        selection-background-color: {PALETTE['accent_bg']};
-        selection-color: {PALETTE['accent']};
-    }}
     QCheckBox {{ color: {PALETTE['text_primary']}; spacing: 6px; }}
 """
 
@@ -152,14 +140,15 @@ def _remove_image_file(image_path):
         except OSError as e:
             print(f"[aircraft_page] Could not remove old image {full}: {e}")
 
-class AircraftDialog(QDialog):
+class AircraftDialog(ThemedDialog):
     """Add (aircraft=None) or Edit (aircraft=dict from db) an airframe.
     Writes to the DB itself on Save, and only closes if that succeeded -
     validation errors (duplicate reg, no category, ...) are shown and the
     dialog stays open with everything still filled in."""
 
     def __init__(self, db, aircraft=None, parent=None):
-        super().__init__(parent)
+        title = f"Edit {aircraft['registration']}" if aircraft is not None else "Add Aircraft"
+        super().__init__(parent, title, width=460)
         self.db = db
         self.aircraft = aircraft
         self.is_edit = aircraft is not None
@@ -167,17 +156,10 @@ class AircraftDialog(QDialog):
         self._picked_image_source = None
         self._image_removed = False
 
-        self.setWindowTitle(
-            f"Edit Aircraft - {aircraft['registration']}" if self.is_edit else "Add Aircraft"
-        )
         self.setModal(True)
-        self.setMinimumWidth(420)
-        self.setStyleSheet(
-            f"QDialog {{ background-color: {PALETTE['bg_panel']}; }}" + _INPUT_STYLE
-        )
+        self.setStyleSheet(self.styleSheet() + _INPUT_STYLE)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
+        layout = self.body
         layout.setSpacing(10)
 
         layout.addWidget(self._field_label("AIRCRAFT"))
@@ -246,19 +228,11 @@ class AircraftDialog(QDialog):
         layout.addLayout(img_row)
         self._update_preview()
 
-        layout.addSpacing(8)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-        save_btn = QPushButton("Save" if self.is_edit else "Add Aircraft")
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(self._save)
-        btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
+        buttons = self.add_buttons(
+            [("cancel", "Cancel", NEUTRAL), ("save", "Save" if self.is_edit else "Add Aircraft", POSITIVE)],
+            default="save")
+        buttons["cancel"].clicked.connect(self.reject)
+        buttons["save"].clicked.connect(self._save)
 
     def _field_label(self, text):
         label = QLabel(text)
@@ -301,7 +275,7 @@ class AircraftDialog(QDialog):
         if not path:
             return
         if QPixmap(path).isNull():
-            QMessageBox.warning(self, "Invalid Image", "That file couldn't be loaded as an image.")
+            inform(self, "Invalid Image", "That file couldn't be loaded as an image.")
             return
         self._picked_image_source = path
         self._image_removed = False
@@ -323,7 +297,7 @@ class AircraftDialog(QDialog):
             try:
                 new_copy = _copy_image_into_assets(self._picked_image_source)
             except OSError as e:
-                QMessageBox.warning(self, "Image Not Saved", f"Couldn't copy the image: {e}")
+                inform(self, "Image Not Saved", f"Couldn't copy the image: {e}")
                 return
             image_path = new_copy
         elif self._image_removed:
@@ -344,7 +318,7 @@ class AircraftDialog(QDialog):
         except ValueError as e:
             if new_copy:
                 _remove_image_file(new_copy)
-            QMessageBox.warning(self, "Aircraft Not Saved", str(e))
+            inform(self, "Aircraft Not Saved", str(e))
             return
 
         if self._original_image and image_path != self._original_image:
@@ -648,15 +622,9 @@ class AircraftPage(QWidget):
             self.refresh()
 
     def _delete_aircraft(self, aircraft):
-        answer = QMessageBox.question(
-            self,
-            "Delete Aircraft",
-            f"Delete {aircraft['registration']} ({aircraft['designation']})? "
-            f"This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
+        if not confirm(self, "Delete Aircraft",
+                       f"Delete {aircraft['registration']} ({aircraft['designation']})? "
+                       f"This cannot be undone.", "Delete"):
             return
         self.db.delete_aircraft(aircraft["registration"])
         self.refresh()

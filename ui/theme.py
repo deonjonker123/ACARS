@@ -195,7 +195,7 @@ def build_stylesheet():
         text-align: left;
         padding: 10px 16px;
         font-family: 'EB Garamond';
-        font-size: 14px;
+        font-size: 18px;
         font-weight: 700;
     }}
     
@@ -299,10 +299,10 @@ def build_stylesheet():
     }}
     QScrollBar::handle:horizontal {{
         background: {p['border_light']};
-        min-height: 24px;
+        min-width: 24px;
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal  {{
-        height: 0px;
+        width: 0px;
     }}
     
     /* ---- Rank progress bar ---- */
@@ -324,33 +324,30 @@ def build_stylesheet():
     
     /* ---- Buttons ---- */
     QPushButton {{
-        background-color: {p['bg_input']};
-        color: {p['text_primary']};
+        background-color: transparent;
+        color: {p['text_secondary']};
         border: 1px solid {p['border']};
-        padding: 7px 14px;
-        font-size: 10px;
+        border-radius: 0px;
+        padding: 13px 22px;
+        font-size: 11px;
+        outline: none;
     }}
 
     QPushButton:hover {{
-        background-color: {p['bg_panel_alt']};
+        color: {p['text_primary']};
         border-color: {p['border_light']};
     }}
 
     QPushButton:pressed {{
-        background-color: {p['accent_bg']};
-        border-color: {p['accent_dim']};
-        color: {p['accent']};
+        background-color: {p['bg_input']};
+        color: {p['text_primary']};
+        border-color: {p['border_light']};
     }}
 
     QPushButton:disabled {{
-        background-color: {p['bg_panel']};
+        background-color: transparent;
         color: {p['text_muted']};
         border-color: {p['border']};
-    }}
-
-    QPushButton:focus {{
-        outline: none;
-        border-color: {p['accent_dim']};
     }}
     
     /* ---- Table action buttons ---- */
@@ -373,11 +370,43 @@ def build_stylesheet():
         color: {p['text_primary']};
     }}
     
-    /* ---- Popups (alerts / confirmations) ---- */
-    QMessageBox {{
-        background-color: {p['bg_panel']};
-    }}
-    QMessageBox QLabel {{
+    /* ---- Inputs ---- */
+    QLineEdit, QComboBox {{
+        background-color: {p['bg']};
         color: {p['text_primary']};
+        border: 1px solid {p['accent_dim']};
+        border-radius: 0px;
+        padding: 9px 12px;
+        font-size: 12px;
+        selection-background-color: {p['accent_bg']};
+        selection-color: {p['accent']};
+    }}
+    QLineEdit:focus, QComboBox:focus, QComboBox:on {{
+        border-color: #4caf5f;
+    }}
+    QLineEdit:disabled, QComboBox:disabled {{
+        color: {p['text_muted']};
+        border-color: {p['border']};
+    }}
+    QComboBox::drop-down {{
+        border: none;
+        width: 24px;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {p['bg']};
+        color: {p['text_primary']};
+        border: 1px solid {p['accent_dim']};
+        border-radius: 0px;
+        outline: 0;
+        selection-background-color: {p['accent_bg']};
+        selection-color: {p['accent']};
+    }}
+
+    /* ---- Tooltips ---- */
+    QToolTip {{
+        background-color: {p['bg_panel']};
+        color: {p['text_primary']};
+        border: 1px solid {p['border']};
+        padding: 6px 8px;
     }}
     """

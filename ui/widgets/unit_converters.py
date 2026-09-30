@@ -45,13 +45,6 @@ _STYLE = f"""
         background-color: {PALETTE['bg']};
         border: 1px solid {PALETTE['border']};
     }}
-    QLineEdit {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        border: 1px solid {PALETTE['border']};
-        padding: 8px 10px;
-        font-size: 14px;
-    }}
     QLineEdit:focus {{ border-color: {PALETTE['accent_dim']}; }}
 """
 

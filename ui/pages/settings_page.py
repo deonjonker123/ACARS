@@ -23,34 +23,20 @@ import os
 import sys
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton
 )
 from PySide6.QtCore import Qt, QTimer
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, font, font_label
+from ui.widgets.dialogs import inform
 from core.airports import _DEFAULT_CSV_PATH, _VALID_TYPES
 
 FORM_MAX_WIDTH = 880
 SAVED_MESSAGE_MS = 3000
 
 _PAGE_STYLE = f"""
-    QLineEdit {{
-        background-color: {PALETTE['bg_input']};
-        color: {PALETTE['text_primary']};
-        border: 1px solid {PALETTE['border']};
-        padding: 9px 12px;
-        font-size: 12px;
-    }}
-    QLineEdit:focus {{ border-color: {PALETTE['accent_dim']}; }}
-    QPushButton#SaveButton {{
-        background-color: {PALETTE['accent_bg']};
-        color: {PALETTE['accent']};
-        border: 1px solid {PALETTE['accent_dim']};
-        padding: 9px 28px;
-        font-size: 11px;
-    }}
     QPushButton#SaveButton:hover {{ border-color: {PALETTE['accent']}; }}
 """
 
@@ -226,7 +212,7 @@ class SettingsPage(QWidget):
         if len(home) == 4:
             name = _find_airport_name(home)
             if name == "":
-                QMessageBox.warning(self, "Profile Not Saved", f"{home} is not a known airport.")
+                inform(self, "Profile Not Saved", f"{home} is not a known airport.")
                 return
 
         try:
@@ -238,7 +224,7 @@ class SettingsPage(QWidget):
                 home_airport=home,
             )
         except ValueError as e:
-            QMessageBox.warning(self, "Profile Not Saved", str(e))
+            inform(self, "Profile Not Saved", str(e))
             return
 
         self._load()
