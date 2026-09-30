@@ -42,7 +42,7 @@ from core.landing_grade import letter_for
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 
-SIDEBAR_WIDTH = 320
+SIDEBAR_WIDTH = 220
 NAV_ICON_SIZE = 18
 
 class _UpdateNotifier(QObject):
@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
 
         logo_container = QWidget()
         logo_layout = QVBoxLayout(logo_container)
-        logo_layout.setContentsMargins(20, 0, 20, 20)
+        logo_layout.setContentsMargins(20, 0, 20, 0)
         if logo_exists():
             pixmap = QPixmap(LOGO_PATH)
             logo_label = QLabel()
@@ -120,10 +120,11 @@ class MainWindow(QMainWindow):
             logo_layout.addWidget(logo_label)
         layout.addWidget(logo_container)
         self.utc_clock = QLabel()
-        self.utc_clock.setFont(font_label(11))
+        self.utc_clock.setFont(font_label(10))
+        self.utc_clock.setStyleSheet(f"color: {PALETTE['text_muted']};")
         self.utc_clock.setAlignment(Qt.AlignCenter)
         self.utc_clock.setToolTip("Current time, UTC (Zulu)")
-        self.utc_clock.setContentsMargins(0, 0, 0, 12)
+        self.utc_clock.setContentsMargins(0, 10, 0, 10)
         layout.addWidget(self.utc_clock)
         self._update_clock()
         self._clock_timer = QTimer(self)
@@ -201,11 +202,7 @@ class MainWindow(QMainWindow):
         button.setIconSize(QSize(NAV_ICON_SIZE, NAV_ICON_SIZE))
 
     def _update_clock(self):
-        now = datetime.now(timezone.utc)
-        self.utc_clock.setText(
-            f'<span style="color:{PALETTE["text_primary"]};">{now:%H:%M:%S}</span>'
-            f'&nbsp;<span style="color:{PALETTE["text_muted"]};">Z</span>'
-        )
+        self.utc_clock.setText(f"{datetime.now(timezone.utc):%H:%M:%SZ}")
 
     def _show_update(self, release):
         """Shows the "Update available" link under the version, if the
