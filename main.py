@@ -47,17 +47,15 @@ from ui.pages.profile_page import ProfilePage
 from ui.pages.debrief_page import DebriefPage
 from core.db import FlightDatabase
 
-LOG_MAX_BYTES = 1_000_000
-
-
 def _log_to_file():
-    """The .exe has no console: send prints and errors to acars.log. The
-    previous log is kept as acars.log.1 once it passes LOG_MAX_BYTES."""
+    """The .exe has no console: send prints and errors to acars.log.
+    Each start begins a fresh log; the previous session's is kept as
+    acars.log.1."""
     ensure_user_data_dir()
     try:
-        if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > LOG_MAX_BYTES:
+        if os.path.exists(LOG_PATH):
             os.replace(LOG_PATH, LOG_PATH + ".1")
-        log = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+        log = open(LOG_PATH, "w", encoding="utf-8", buffering=1)
     except OSError:
         return
     sys.stdout = log

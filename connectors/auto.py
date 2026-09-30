@@ -8,8 +8,12 @@ While no sim is connected, each connect() call (the app retries every
 poll) looks for:
   1. X-Plane    - (re)sends its UDP subscriptions and checks whether it has
                   answered; never waits for it
-  2. MSFS / P3D - tries to open SimConnect (fails fast if neither is running)
-The first one found is used.
+  2. MSFS       - SimConnect, after a background check that the sim really
+                  answers (connectors/simconnect_probe.py)
+  3. P3D / FSX  - FSUIPC (connectors/fsuipc.py), only once SimConnect has
+                  been checked and can't be used - P3D rejects MSFS's
+                  SimConnect as the wrong version
+The first one found is used, and logged.
 
 Opening SimConnect isn't proof MSFS / P3D is running - other software can
 accept the connection too, and then no data ever comes. So until the
@@ -126,6 +130,7 @@ class AutoConnector:
 
     def disconnect(self):
         if self._active is not None:
+            print(f"[auto] {time.strftime('%H:%M:%S')} Disconnected from {self._active.SIM_NAME}.")
             self._quietly_disconnect(self._active)
         self._quietly_disconnect(self._xplane)
         self._active = None
@@ -149,8 +154,10 @@ class AutoConnector:
         self._active = connector
         self._last_data = time.monotonic()
         self._msfs_proven = False
+        print(f"[auto] {time.strftime('%H:%M:%S')} Connected: {connector.SIM_NAME}")
 
     def _drop(self):
+        print(f"[auto] {time.strftime('%H:%M:%S')} Lost {self._active.SIM_NAME} - searching for a sim again.")
         self._quietly_disconnect(self._active)
         self._active = None
 
