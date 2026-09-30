@@ -66,7 +66,6 @@ _INPUT_STYLE = f"""
         background-color: {PALETTE['bg_input']};
         color: {PALETTE['text_primary']};
         border: 1px solid {PALETTE['border']};
-        border-radius: 4px;
         padding: 6px 8px;
     }}
     QLineEdit:focus, QComboBox:focus {{ border-color: {PALETTE['accent_dim']}; }}
@@ -119,7 +118,7 @@ def _image_label(image_path, width, height):
     label = QLabel()
     label.setFixedSize(width, height)
     label.setAlignment(Qt.AlignCenter)
-    label.setStyleSheet(f"background-color: {PALETTE['bg_input']}; border-radius: 3px;")
+    label.setStyleSheet(f"background-color: {PALETTE['bg_input']};")
 
     full_path = _absolute_image_path(image_path)
     pixmap = _cropped_pixmap(full_path, width, height) if full_path else None
@@ -129,7 +128,7 @@ def _image_label(image_path, width, height):
         label.setText("NO IMAGE")
         label.setFont(font_label(9))
         label.setStyleSheet(
-            f"background-color: {PALETTE['bg_input']}; border-radius: 3px; "
+            f"background-color: {PALETTE['bg_input']}; "
             f"color: {PALETTE['text_muted']};"
         )
     return label
@@ -286,13 +285,13 @@ class AircraftDialog(QDialog):
         self.image_preview.setAlignment(Qt.AlignCenter)
         if pixmap is not None:
             self.image_preview.setPixmap(pixmap)
-            self.image_preview.setStyleSheet("border-radius: 3px;")
+            self.image_preview.setStyleSheet("border-radius: 0;")
         else:
             self.image_preview.setPixmap(QPixmap())
             self.image_preview.setText("NO IMAGE")
             self.image_preview.setFont(font_label(9))
             self.image_preview.setStyleSheet(
-                f"background-color: {PALETTE['bg_input']}; border-radius: 3px; "
+                f"background-color: {PALETTE['bg_input']};  "
                 f"color: {PALETTE['text_muted']};"
             )
         self.remove_img_btn.setEnabled(path is not None)

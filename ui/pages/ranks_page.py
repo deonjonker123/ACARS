@@ -135,7 +135,6 @@ class RanksPage(QWidget):
                 QWidget#Card {{
                     background-color: {PALETTE['accent_bg']};
                     border: 1px solid {PALETTE['accent']};
-                    border-radius: 4px;
                 }}
             """)
         row = QHBoxLayout(card)

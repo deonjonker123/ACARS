@@ -44,13 +44,11 @@ _STYLE = f"""
     QFrame#ConverterCard {{
         background-color: {PALETTE['bg']};
         border: 1px solid {PALETTE['border']};
-        border-radius: 6px;
     }}
     QLineEdit {{
         background-color: {PALETTE['bg_input']};
         color: {PALETTE['text_primary']};
         border: 1px solid {PALETTE['border']};
-        border-radius: 4px;
         padding: 8px 10px;
         font-size: 14px;
     }}

@@ -46,7 +46,6 @@ MONO_FAMILY = "Consolas"
 _TAB_STYLE = f"""
     QTabWidget::pane {{
         border: 1px solid {PALETTE['border']};
-        border-radius: 4px;
         top: -1px;
         background-color: {PALETTE['bg_panel']};
     }}
@@ -195,7 +194,7 @@ class FlightPlanPage(QWidget):
         browser.setOpenExternalLinks(True)
         browser.setFont(_mono(10))
         browser.setStyleSheet("QTextBrowser { background-color: #FFFFFF; color: #111111; "
-                              "border-radius: 4px; padding: 8px; }")
+                              "padding: 8px; }")
         browser.document().setDefaultStyleSheet(
             f"pre, body {{ font-family: '{MONO_FAMILY}', monospace; }}"
         )
@@ -377,7 +376,7 @@ class FlightPlanPage(QWidget):
         browser = QTextBrowser()
         browser.setFont(_mono(10))
         browser.setStyleSheet("QTextBrowser { background-color: #FFFFFF; color: #111111; "
-                              "border-radius: 4px; padding: 8px; }")
+                              "padding: 8px; }")
         if "<" in text and ">" in text:
             browser.document().setDefaultStyleSheet(
                 f"pre, body {{ font-family: '{MONO_FAMILY}', monospace; }}"

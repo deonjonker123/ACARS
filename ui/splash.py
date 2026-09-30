@@ -52,11 +52,9 @@ class SplashScreen(QWidget):
             QProgressBar {{
                 background-color: {PALETTE['bg_input']};
                 border: none;
-                border-radius: 2px;
             }}
             QProgressBar::chunk {{
                 background-color: {PALETTE['accent']};
-                border-radius: 2px;
             }}
         """)
 

@@ -60,7 +60,6 @@ class AboutDialog(QDialog):
                 background-color: {PALETTE['bg']};
                 color: {PALETTE['text_secondary']};
                 border: 1px solid {PALETTE['border']};
-                border-radius: 4px;
             }}
         """)
 

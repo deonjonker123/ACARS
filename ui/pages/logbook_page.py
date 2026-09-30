@@ -71,26 +71,21 @@ class LogbookPage(QWidget):
         self.db = db
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(32, 24, 32, 24)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        card = QWidget()
-        card.setObjectName("Card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(10)
-        outer.addWidget(card)
-
-        title_row = QHBoxLayout()
-        title = QLabel("LOGBOOK")
-        title.setObjectName("SectionLabel")
-        title.setFont(font_label(10))
-        title_row.addWidget(title)
-        title_row.addStretch()
+        strip = QWidget()
+        strip.setObjectName("LogbookStrip")
+        strip.setAttribute(Qt.WA_StyledBackground, True)
+        strip.setStyleSheet(f"QWidget#LogbookStrip {{ border-bottom: 1px solid {PALETTE['border']}; }}")
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(32, 10, 32, 10)
         self.summary_label = QLabel("")
         self.summary_label.setFont(font_label(9))
         self.summary_label.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        title_row.addWidget(self.summary_label)
-        layout.addLayout(title_row)
+        strip_layout.addWidget(self.summary_label)
+        strip_layout.addStretch()
+        outer.addWidget(strip)
 
         self.table = QTableWidget()
         self.table.setColumnCount(len(COLUMNS))
@@ -101,7 +96,8 @@ class LogbookPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setAlternatingRowColors(True)
-        layout.addWidget(self.table)
+        self.table.setStyleSheet("QTableWidget { padding-left: 26px; padding-right: 26px; }")
+        outer.addWidget(self.table, stretch=1)
 
         self.refresh()
 

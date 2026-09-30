@@ -31,6 +31,7 @@ import os
 import sys
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtCore import Qt
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -128,28 +129,23 @@ class LiveMapPage(QWidget):
         self._pilot_name = ""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        card = QWidget()
-        card.setObjectName("Card")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 16, 20, 16)
-        card_layout.setSpacing(10)
-
-        title_row = QHBoxLayout()
-        title = QLabel("LIVE MAP")
-        title.setObjectName("SectionLabel")
-        title.setFont(font_label(10))
-        title_row.addWidget(title)
-        title_row.addStretch()
+        strip = QWidget()
+        strip.setObjectName("LiveMapStrip")
+        strip.setAttribute(Qt.WA_StyledBackground, True)
+        strip.setStyleSheet(f"QWidget#LiveMapStrip {{ border-bottom: 1px solid {PALETTE['border']}; }}")
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(32, 10, 32, 10)
         self.status_label = QLabel("")
         self.status_label.setFont(font_label(9))
-        title_row.addWidget(self.status_label)
-        card_layout.addLayout(title_row)
+        strip_layout.addWidget(self.status_label)
+        strip_layout.addStretch()
+        layout.addWidget(strip)
 
         self.map = MapView()
-        card_layout.addWidget(self.map, stretch=1)
-        layout.addWidget(card)
+        layout.addWidget(self.map, stretch=1)
 
         self._refresh_pilot_name()
         self._set_status("NO FLIGHT DISPATCHED", PALETTE["text_secondary"])

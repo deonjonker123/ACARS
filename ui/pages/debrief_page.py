@@ -34,7 +34,7 @@ from PySide6.QtCore import Qt
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, GRADE_COLORS, font, font_heading, font_label
-from ui.widgets.charts import LineChart, SERIES_COLORS
+from ui.widgets.charts import LineChart, SERIES_COLORS, CHART_COLORS
 from ui.widgets.map_view import MapView
 from core.debrief import build_debrief
 
@@ -246,7 +246,7 @@ class DebriefPage(QWidget):
         color = PALETTE["positive"] if accepted else PALETTE["negative"]
         self.badge.setText("ACCEPTED" if accepted else "REJECTED")
         self.badge.setStyleSheet(f"background-color: {color}; color: #ffffff;"
-                                 f" border-radius: 3px; padding: 3px 10px;")
+                                 f" padding: 3px 10px;")
         self.title.setText(debrief["title"])
         self.subtitle.setText(debrief["subtitle"].upper())
         self.reason.setText(debrief["reason"] or "")
@@ -305,7 +305,7 @@ class DebriefPage(QWidget):
         self.profile_note.setVisible(not has_track)
         minutes = lambda m: f"{int(m) // 60}:{int(m) % 60:02d}"
         self.altitude_chart.set_series(
-            [{"name": "Altitude", "points": profile["altitude"]}],
+            [{"name": "Altitude", "points": profile["altitude"], "color": CHART_COLORS["violet"]}],
             x_format=minutes, y_format=lambda v: f"{v:,.0f} ft", fill=True)
         self.speed_chart.set_series(
             [{"name": "IAS", "points": profile["ias"], "color": SERIES_COLORS[0]},

@@ -42,7 +42,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from ui.theme import PALETTE, font, font_label
 
-SERIES_COLORS = ("#bf861a", "#4a8cc9")
+CHART_COLORS = {
+    "blue": "#3987e5",
+    "aqua": "#199e70",
+    "violet": "#9085e9",
+    "orange": "#d95926",
+    "magenta": "#d55181",
+}
+SERIES_COLORS = (CHART_COLORS["blue"], CHART_COLORS["orange"])
 
 BAR_MAX_PX = 24
 BAR_RADIUS = 4
@@ -114,9 +121,10 @@ class _Chart(QWidget):
 class BarChart(_Chart):
     """Columns (default) or ranked horizontal rows. See the module docstring."""
 
-    def __init__(self, horizontal=False, parent=None):
+    def __init__(self, horizontal=False, color=None, parent=None):
         super().__init__(parent)
         self.horizontal = horizontal
+        self._bar_color = color or SERIES_COLORS[0]
         self._items = []
         self._value_format = lambda v: f"{v:,.0f}"
         self._bars = []
@@ -133,7 +141,7 @@ class BarChart(_Chart):
         self.update()
 
     def _color(self, item):
-        return QColor(item.get("color") or SERIES_COLORS[0])
+        return QColor(item.get("color") or self._bar_color)
 
     def paintEvent(self, event):
         painter = QPainter(self)

@@ -78,7 +78,6 @@ _INPUT_STYLE = f"""
         background-color: {PALETTE['bg_input']};
         color: {PALETTE['text_primary']};
         border: 1px solid {PALETTE['border']};
-        border-radius: 4px;
         padding: 6px 8px;
     }}
     QComboBox:focus {{ border-color: {PALETTE['accent_dim']}; }}
@@ -679,7 +678,7 @@ class HomePage(QWidget):
         glance panel, not another themed stat block.
         """
         panel = QWidget()
-        panel.setStyleSheet("background-color: #FFFFFF; border-radius: 4px;")
+        panel.setStyleSheet("background-color: #FFFFFF;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(6)

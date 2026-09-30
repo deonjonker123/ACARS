@@ -40,7 +40,6 @@ _PAGE_STYLE = f"""
         background-color: {PALETTE['bg_input']};
         color: {PALETTE['text_primary']};
         border: 1px solid {PALETTE['border']};
-        border-radius: 4px;
         padding: 9px 12px;
         font-size: 12px;
     }}

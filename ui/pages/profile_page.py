@@ -23,8 +23,8 @@ from PySide6.QtCore import Qt
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, GRADE_COLORS, font, font_heading, font_label
-from ui.widgets.charts import BarChart, LineChart
-from core.profile_stats import build_profile
+from ui.widgets.charts import BarChart, LineChart, CHART_COLORS
+from core.profile_stats import build_profile, LANDING_BUCKETS
 
 
 def _card(title_text):
@@ -61,6 +61,12 @@ def _hours(hours):
     total = round((hours or 0) * 60)
     return f"{total // 60:,}h {total % 60:02d}m"
 
+def _band_color(low_fpm):
+    if low_fpm < 200:
+        return PALETTE["positive"]
+    if low_fpm < 600:
+        return PALETTE["warning"]
+    return PALETTE["negative"]
 
 def _fpm(value):
     return f"{value:,.0f} fpm" if value is not None else "—"
@@ -140,7 +146,7 @@ class ProfilePage(QWidget):
 
     def _build_aircraft(self):
         card, layout = _card("AIRCRAFT · HOURS BY TYPE")
-        self.aircraft_chart = BarChart(horizontal=True)
+        self.aircraft_chart = BarChart(horizontal=True, color=CHART_COLORS["blue"])
         layout.addWidget(self.aircraft_chart)
         self.aircraft_note = _label("", 9, "text_secondary", bold_label=True, wrap=True)
         layout.addWidget(self.aircraft_note)
@@ -149,7 +155,7 @@ class ProfilePage(QWidget):
 
     def _build_airports(self):
         card, layout = _card("AIRPORTS · MOST VISITED")
-        self.airports_chart = BarChart(horizontal=True)
+        self.airports_chart = BarChart(horizontal=True, color=CHART_COLORS["aqua"])
         layout.addWidget(self.airports_chart)
         self.airports_note = _label("", 9, "text_secondary", bold_label=True, wrap=True)
         layout.addWidget(self.airports_note)
@@ -183,7 +189,7 @@ class ProfilePage(QWidget):
 
     def _build_durations(self):
         card, layout = _card("FLIGHT DURATION")
-        self.duration_chart = BarChart()
+        self.duration_chart = BarChart(color=CHART_COLORS["orange"])
         layout.addWidget(self.duration_chart)
         layout.addWidget(_label("Flights per block time", 8, "text_muted", bold_label=True))
         return card
@@ -199,14 +205,14 @@ class ProfilePage(QWidget):
 
     def _build_networks(self):
         card, layout = _card("NETWORKS")
-        self.network_chart = BarChart(horizontal=True)
+        self.network_chart = BarChart(horizontal=True, color=CHART_COLORS["magenta"])
         layout.addWidget(self.network_chart)
         layout.addStretch()
         return card
 
     def _build_activity(self):
         card, layout = _card("ACTIVITY · FLIGHTS PER MONTH")
-        self.activity_chart = BarChart()
+        self.activity_chart = BarChart(color=CHART_COLORS["blue"])
         layout.addWidget(self.activity_chart)
         return card
 
@@ -249,7 +255,9 @@ class ProfilePage(QWidget):
         self.landing_note.setText(
             f"AVERAGE {_fpm(landings['average'])}  ·  SOFTEST {_fpm(landings['softest'])}"
             f"  ·  HARDEST {_fpm(landings['hardest'])}")
-        self.landing_chart.set_data(landings["histogram"], value_format=lambda v: f"{v:,.0f}")
+        self.landing_chart.set_data(
+            [{**band, "color": _band_color(low)} for band, (low, _) in zip(landings["histogram"], LANDING_BUCKETS)],
+            value_format=lambda v: f"{v:,.0f}")
 
         average = landings["average_grade"]
         self.grade_note.setText(f"AVERAGE GRADE: {average}" if average else "AVERAGE GRADE: —")
@@ -261,7 +269,7 @@ class ProfilePage(QWidget):
 
         labels = landings["trend_labels"]
         self.trend_chart.set_series(
-            [{"name": "Landing rate", "points": landings["trend"]}],
+            [{"name": "Landing rate", "points": landings["trend"], "color": CHART_COLORS["violet"]}],
             x_format=lambda i: f"#{int(i)}",
             x_tooltip=lambda i: labels[int(i) - 1] if 1 <= int(i) <= len(labels) else "",
             y_format=lambda v: f"{v:,.0f} fpm")
