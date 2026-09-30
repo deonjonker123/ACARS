@@ -243,18 +243,6 @@ class FlightPlanPage(QWidget):
         fuel = plan.get("fuel") or {}
         unit = f" {plan.get('units') or 'kg'}"
 
-        inner = QWidget()
-        row = QHBoxLayout(inner)
-        row.setContentsMargins(16, 16, 16, 16)
-        row.setSpacing(48)
-
-        w_grid = QGridLayout()
-        w_grid.setHorizontalSpacing(24)
-        w_grid.setVerticalSpacing(6)
-        w_grid.addWidget(_section_label("WEIGHTS"), 0, 0)
-        w_grid.addWidget(_section_label("PLANNED"), 0, 1, alignment=Qt.AlignRight)
-        w_grid.addWidget(_section_label("MAX"), 0, 2, alignment=Qt.AlignRight)
-
         pax, pax_wt = weights.get("pax_count"), weights.get("pax_weight")
         bags, bag_wt = weights.get("bag_count"), weights.get("bag_weight")
         weight_rows = [
@@ -268,16 +256,6 @@ class FlightPlanPage(QWidget):
             ("Takeoff (TOW)", weights.get("est_tow"), weights.get("max_tow")),
             ("Landing (LW)", weights.get("est_ldw"), weights.get("max_ldw")),
         ]
-        for r, (label, planned, limit) in enumerate(weight_rows, start=1):
-            self._add_value_row(w_grid, r, label, _num(planned, unit), _num(limit, unit) if limit else "",
-                                over=planned is not None and limit is not None and planned > limit)
-        w_grid.setRowStretch(len(weight_rows) + 1, 1)
-        row.addLayout(w_grid)
-
-        f_grid = QGridLayout()
-        f_grid.setHorizontalSpacing(24)
-        f_grid.setVerticalSpacing(6)
-        f_grid.addWidget(_section_label("FUEL"), 0, 0)
         fuel_rows = [
             ("Taxi", fuel.get("taxi")),
             ("Trip", fuel.get("enroute_burn")),
@@ -296,33 +274,62 @@ class FlightPlanPage(QWidget):
             ("Avg. fuel flow", fuel.get("avg_fuel_flow")),
             ("Tank capacity", fuel.get("max_tanks")),
         ]
-        for r, (label, value) in enumerate(fuel_rows, start=1):
-            suffix = f"{unit}/hr" if label == "Avg. fuel flow" else unit
-            self._add_value_row(f_grid, r, label, _num(value, suffix), "",
-                                bold=label == "Block (ramp)")
-        f_grid.setRowStretch(len(fuel_rows) + 1, 1)
-        row.addLayout(f_grid)
 
-        row.addStretch()
+        weights_table = self._value_table(
+            ["WEIGHTS", "PLANNED", "MAX"],
+            [([label, _num(planned, unit), _num(limit, unit) if limit else ""],
+              "over" if planned is not None and limit is not None and planned > limit else None)
+             for label, planned, limit in weight_rows])
+        fuel_table = self._value_table(
+            ["FUEL", "PLANNED"],
+            [([label, _num(value, f"{unit}/hr" if label == "Avg. fuel flow" else unit)],
+              "key" if label == "Block (ramp)" else None)
+             for label, value in fuel_rows])
+
+        inner = QWidget()
+        column = QVBoxLayout(inner)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(weights_table)
+        column.addSpacing(32)
+        column.addWidget(fuel_table)
+        column.addStretch()
         return _scrollable(inner)
 
-    def _add_value_row(self, grid, r, label, value, limit, over=False, bold=False):
-        name = QLabel(label)
-        name.setFont(font(10))
-        name.setStyleSheet(f"color: {PALETTE['text_secondary']};")
-        grid.addWidget(name, r, 0)
+    def _value_table(self, columns, rows):
+        table = QTableWidget(len(rows), len(columns))
+        table.setHorizontalHeaderLabels(columns)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for c in range(1, len(columns)):
+            header.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+            table.horizontalHeaderItem(c).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        table.horizontalHeaderItem(0).setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        val = QLabel(value)
-        val.setFont(_mono(10))
-        color = PALETTE["negative"] if over else (PALETTE["accent"] if bold else PALETTE["text_primary"])
-        val.setStyleSheet(f"color: {color};")
-        grid.addWidget(val, r, 1, alignment=Qt.AlignRight)
+        colors = {"over": PALETTE["negative"], "key": PALETTE["accent"]}
+        for r, (cells, highlight) in enumerate(rows):
+            for c, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if c == 0:
+                    item.setForeground(QColor(PALETTE["text_secondary"]))
+                else:
+                    item.setFont(_mono(10))
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    if highlight in colors:
+                        item.setForeground(QColor(colors[highlight]))
+                table.setItem(r, c, item)
 
-        if limit:
-            lim = QLabel(limit)
-            lim.setFont(_mono(10))
-            lim.setStyleSheet(f"color: {PALETTE['text_muted']};")
-            grid.addWidget(lim, r, 2, alignment=Qt.AlignRight)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.resizeRowsToContents()
+        height = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth()
+        height += sum(table.rowHeight(r) for r in range(table.rowCount()))
+        table.setFixedHeight(height)
+        return table
 
     def _build_navlog_tab(self, plan):
         navlog = plan.get("navlog") or []

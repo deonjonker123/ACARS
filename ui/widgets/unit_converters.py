@@ -140,9 +140,7 @@ class UnitConverters(QWidget):
         row.setSpacing(16)
         for title, hint, units in CONVERTERS:
             card = _ConverterCard(title, hint, units)
-            card.setFixedWidth(260)
-            row.addWidget(card)
-        row.addStretch()
+            row.addWidget(card, stretch=1)
         outer.addLayout(row)
         outer.addStretch()
 
