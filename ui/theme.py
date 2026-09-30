@@ -93,14 +93,14 @@ def _family():
     return _FALLBACK_FAMILY if _FALLBACK_FAMILY else FONT_FAMILY
 
 PALETTE = {
-    "bg":               "#111115",
-    "bg_sidebar":       "#111115",
-    "bg_panel":         "#0f0f12",
-    "bg_panel_alt":     "#0f0f12",
-    "bg_input":         "#0f0f12",
+    "bg":               "#0e0e0e",
+    "bg_sidebar":       "#1a1a1a",
+    "bg_panel":         "#1a1a1a",
+    "bg_panel_alt":     "#1a1a1a",
+    "bg_input":         "#272727",
 
-    "border":           "#c9a84a",
-    "border_light":     "#fbe6b1",
+    "border":           "#3e3d40",
+    "border_light":     "#545554",
 
     "text_primary":     "#f5f6f6",
     "text_secondary":   "#6c7381",
