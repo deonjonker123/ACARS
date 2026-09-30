@@ -39,6 +39,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from ui.theme import PALETTE, font, font_label
 from ui.widgets.plan_summary import PlanSummary, fmt_hm
+from ui.widgets.unit_converters import UnitConverters
 
 MONO_FAMILY = "Consolas"
 
@@ -167,6 +168,8 @@ class FlightPlanPage(QWidget):
         tlr = (plan.get("ofp") or {}).get("tlr_text")
         if tlr:
             self.tabs.addTab(self._build_text_tab(tlr), "Takeoff/Landing")
+
+        self.tabs.addTab(UnitConverters(), "Converters")
 
     def _build_ofp_tab(self, plan):
         ofp = plan.get("ofp") or {}

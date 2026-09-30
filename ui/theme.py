@@ -93,14 +93,14 @@ def _family():
     return _FALLBACK_FAMILY if _FALLBACK_FAMILY else FONT_FAMILY
 
 PALETTE = {
-    "bg":               "#0e0e0e",
-    "bg_sidebar":       "#1a1a1a",
-    "bg_panel":         "#1a1a1a",
-    "bg_panel_alt":     "#1a1a1a",
-    "bg_input":         "#272727",
+    "bg":               "#111115",
+    "bg_sidebar":       "#111115",
+    "bg_panel":         "#0f0f12",
+    "bg_panel_alt":     "#0f0f12",
+    "bg_input":         "#0f0f12",
 
-    "border":           "#3e3d40",
-    "border_light":     "#545554",
+    "border":           "#c9a84a",
+    "border_light":     "#fbe6b1",
 
     "text_primary":     "#f5f6f6",
     "text_secondary":   "#6c7381",
@@ -235,7 +235,6 @@ def build_stylesheet():
     QWidget#Card {{
         background-color: {p['bg_panel']};
         border: 1px solid {p['border']};
-        border-radius: 4px;
     }}
     QLabel#SectionLabel {{
         color: {p['text_secondary']};
@@ -255,7 +254,6 @@ def build_stylesheet():
     QLabel#Badge {{
         border: 1px solid {p['accent']};
         color: {p['accent']};
-        border-radius: 3px;
         padding: 2px 8px;
         font-size: 9px;
     }}
@@ -289,7 +287,6 @@ def build_stylesheet():
     }}
     QScrollBar::handle:vertical {{
         background: {p['border_light']};
-        border-radius: 4px;
         min-height: 24px;
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
@@ -302,7 +299,6 @@ def build_stylesheet():
     }}
     QScrollBar::handle:horizontal {{
         background: {p['border_light']};
-        border-radius: 4px;
         min-height: 24px;
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal  {{
@@ -313,13 +309,11 @@ def build_stylesheet():
     QProgressBar#RankProgress {{
         background-color: {p['bg_input']};
         border: none;
-        border-radius: 2px;
         max-height: 10px;
         min-height: 10px;
     }}
     QProgressBar#RankProgress::chunk {{
         background-color: {p['accent']};
-        border-radius: 2px;
     }}
 
     /* ---- Misc ---- */
@@ -333,7 +327,6 @@ def build_stylesheet():
         background-color: {p['bg_input']};
         color: {p['text_primary']};
         border: 1px solid {p['border']};
-        border-radius: 4px;
         padding: 7px 14px;
         font-size: 10px;
     }}
@@ -365,7 +358,6 @@ def build_stylesheet():
         background-color: transparent;
         color: {p['text_primary']};
         border: 1px solid {p['border']};
-        border-radius: 3px;
         padding: 4px 10px;
         font-size: 10px;
     }}

@@ -128,6 +128,17 @@ That includes the logbook database, fleet, aircraft photos and the log file. It'
 
 If something goes wrong, `acars.log` in that folder is the first thing to send.
 
+Backup and Restore: backup your data and restore it.
+
+### Backup and restore
+
+The About box (click the version number in the sidebar) has **Back Up...** and **Restore...** buttons.
+
+- **Back Up** saves your logbook, fleet, profile and aircraft photos to a single `.zip` file wherever you choose. It's safe to do while Tailwind is running.
+- **Restore** replaces your current data with a backup's. It shows what's in the backup (date, version, flights, aircraft) and asks before it changes anything. Your current data is saved first, to `backups\pre-restore-<date>.zip` in the data folder, so a restore can always be undone by restoring that file. Tailwind then restarts with the restored data.
+- You can't restore while a flight is dispatched or waiting to be submitted. Finish, submit, discard or cancel it first.
+- Backups from older versions of Tailwind restore fine. A backup made by a newer version can't be restored until you update Tailwind.
+
 ---
 
 ## Building from source
