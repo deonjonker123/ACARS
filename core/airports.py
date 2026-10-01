@@ -3,10 +3,6 @@ core/airports.py
 
 Nearest-airport lookup by lat/lon, backed by the free OurAirports dataset.
 
-This does NOT bundle the data file - you need to download it once:
-    https://ourairports.com/data/airports.csv
-and save it as: data/airports.csv
-
 Why a grid index instead of brute force: the full dataset is ~80,000 rows.
 Checking every row's distance on every lookup would work but is wasteful
 when called once per flight (block start/end). Instead, airports are
