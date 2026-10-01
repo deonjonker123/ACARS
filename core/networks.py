@@ -101,7 +101,7 @@ _FINDERS = {"VATSIM": vatsim_pilot, "IVAO": ivao_pilot}
 def fetch_feed(network):
     """Downloads and parses one network's feed. Raises NetworkError."""
     request = urllib.request.Request(FEEDS[network], headers={
-        "User-Agent": "Tailwind-ACARS",
+        "User-Agent": "Flyt-ACARS",
         "Accept-Encoding": "gzip",
     })
     try:

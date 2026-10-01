@@ -26,7 +26,7 @@ class BackupError(Exception):
 
 
 def default_backup_name():
-    return f"Tailwind-backup-{datetime.now():%Y-%m-%d}.zip"
+    return f"Flyt-backup-{datetime.now():%Y-%m-%d}.zip"
 
 
 def _snapshot_db(source_path, target_path):
@@ -124,21 +124,21 @@ def _open_backup(zip_path, work):
     try:
         zf = zipfile.ZipFile(zip_path)
     except (OSError, zipfile.BadZipFile) as e:
-        raise BackupError(f"That isn't a Tailwind backup (can't open it as a zip: {e}).") from e
+        raise BackupError(f"That isn't a Flyt backup (can't open it as a zip: {e}).") from e
     with zf:
         names = set(zf.namelist())
         if MANIFEST_NAME not in names or DB_NAME not in names:
-            raise BackupError("That isn't a Tailwind backup (no manifest or database inside).")
+            raise BackupError("That isn't a Flyt backup (no manifest or database inside).")
         try:
             manifest = json.loads(zf.read(MANIFEST_NAME).decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as e:
             raise BackupError("The backup's manifest can't be read.") from e
         if not isinstance(manifest, dict) or manifest.get("format") != BACKUP_FORMAT:
-            raise BackupError("This backup was made in a format this version of Tailwind doesn't know.")
+            raise BackupError("This backup was made in a format this version of Flyt doesn't know.")
         made_by = manifest.get("app_version")
         if is_newer(made_by, APP_VERSION):
-            raise BackupError(f"This backup was made by Tailwind {made_by}. "
-                              f"Update Tailwind (you have {APP_VERSION}) before restoring it.")
+            raise BackupError(f"This backup was made by Flyt {made_by}. "
+                              f"Update Flyt (you have {APP_VERSION}) before restoring it.")
 
         db_path = os.path.join(work, DB_NAME)
         with zf.open(DB_NAME) as src, open(db_path, "wb") as dst:

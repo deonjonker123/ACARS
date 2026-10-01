@@ -2,7 +2,7 @@
 ui/splash.py
 
 The startup splash: a small borderless window in the app's dark/gold theme
-with the Tailwind logo, a progress bar and one line saying what's being
+with the Flyt logo, a progress bar and one line saying what's being
 loaded. main.py shows it first, reports each startup step to it, then
 hands it the finished main window:
 

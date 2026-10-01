@@ -176,7 +176,7 @@ class AircraftDialog(ThemedDialog):
         regen_btn = QPushButton("Generate")
         regen_btn.setObjectName("TableActionButton")
         regen_btn.setCursor(Qt.PointingHandCursor)
-        regen_btn.setToolTip("Generate a new unused Tailwind registration")
+        regen_btn.setToolTip("Generate a new unused Flyt registration")
         regen_btn.clicked.connect(lambda checked=False: self.reg_input.setText(self.db.generate_registration()))
         reg_row.addWidget(regen_btn)
         layout.addLayout(reg_row)

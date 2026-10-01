@@ -137,8 +137,8 @@ class AboutDialog(ThemedDialog):
 
     def _back_up(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Back Up Tailwind", os.path.join(_backup_folder(), default_backup_name()),
-            "Tailwind backup (*.zip)")
+            self, "Back Up Flyt", os.path.join(_backup_folder(), default_backup_name()),
+            "Flyt backup (*.zip)")
         if not path:
             return
         if not path.lower().endswith(".zip"):
@@ -162,8 +162,8 @@ class AboutDialog(ThemedDialog):
                    "A flight is dispatched or waiting to be submitted. Finish it, submit or "
                    "discard it, or cancel the dispatch before restoring a backup.")
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Restore Tailwind Backup", _backup_folder(),
-                                              "Tailwind backup (*.zip)")
+        path, _ = QFileDialog.getOpenFileName(self, "Restore Flyt Backup", _backup_folder(),
+                                              "Flyt backup (*.zip)")
         if not path:
             return
         try:
@@ -183,7 +183,7 @@ class AboutDialog(ThemedDialog):
                 f"Your current data is saved to the backups folder first, and {APP_NAME} "
                 f"restarts when it's done.",
                 "Restore",
-                details=f"Backup from {made}, made with Tailwind {info.get('app_version', '?')}\n"
+                details=f"Backup from {made}, made with Flyt {info.get('app_version', '?')}\n"
                         f"{info['flights']} flights  ·  {info['aircraft']} aircraft  ·  {info['photos']} photos"):
             return
 
@@ -199,19 +199,19 @@ class AboutDialog(ThemedDialog):
                details=f"Your previous data was saved to:\n{safety}" if safety else None)
         self.accept()
         if not _restart_app():
-            inform(None, "Restart Tailwind", f"Couldn't restart automatically - please start {APP_NAME} again.")
+            inform(None, "Restart Flyt", f"Couldn't restart automatically - please start {APP_NAME} again.")
             QApplication.quit()
 
 
 def _backup_folder():
     """Where the backup file dialogs open: the last folder used, else Documents."""
     default = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
-    folder = QSettings("Tailwind", "ACARS").value("backup_folder", default)
+    folder = QSettings("Flyt", "ACARS").value("backup_folder", default)
     return folder if folder and os.path.isdir(folder) else default
 
 
 def _remember_backup_folder(path):
-    QSettings("Tailwind", "ACARS").setValue("backup_folder", os.path.dirname(path))
+    QSettings("Flyt", "ACARS").setValue("backup_folder", os.path.dirname(path))
 
 
 def _restart_app():

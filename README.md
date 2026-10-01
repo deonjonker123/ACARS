@@ -1,6 +1,6 @@
-# Tailwind ACARS
+# Flyt ACARS
 
-A flight-tracking and logbook app for flight simulation. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Tailwind records the whole thing automatically: block times, route, altitude and speed profile, landing rate and flight hours. Every landing gets a grade, every flight gets a full debrief, and your profile builds up career stats as you go. It also tracks your rank.
+A flight-tracking and logbook app for flight simulation. Plan a flight with SimBrief, fly it in Microsoft Flight Simulator, Prepar3D or X-Plane, and Flyt records the whole thing automatically: block times, route, altitude and speed profile, landing rate and flight hours. Every landing gets a grade, every flight gets a full debrief, and your profile builds up career stats as you go. It also tracks your rank.
 
 Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
@@ -8,9 +8,9 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
 ## Installing
 
-1. Go to [**Releases**](https://github.com/deonjonker123/ACARS/releases) and download the latest `Tailwind-Setup-x.y.z.exe`.
+1. Go to [**Releases**](https://github.com/deonjonker123/ACARS/releases) and download the latest `Flyt-Setup-x.y.z.exe`.
 2. Run it. It installs just for you, so there's no admin prompt. You can add a desktop shortcut during setup.
-3. Start Tailwind. On first launch it asks you to fill in your pilot profile. Tailwind comes with a sample fleet. This can be updated or deleted and new aircraft can be added to suit your needs.
+3. Start Flyt. On first launch it asks you to fill in your pilot profile. Flyt comes with a sample fleet. This can be updated or deleted and new aircraft can be added to suit your needs.
 
 > Windows SmartScreen may warn you that the installer is from an unknown publisher, because it isn't code-signed. Click **More info → Run anyway**.
 
@@ -24,17 +24,17 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 
 1. **Settings.** Enter your pilot name and **SimBrief Pilot ID** (SimBrief → Account Settings → Pilot ID). If you fly online, also add your VATSIM or IVAO ID. A home airport is optional.
 2. **Plan** your flight on [SimBrief](https://www.simbrief.com) as usual.
-3. **Dispatch.** Tailwind loads your latest SimBrief plan. Pick an aircraft from the fleet and your network (Offline, VATSIM or IVAO), then dispatch.
-5. **Fly.** Start the sim. Tailwind finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
+3. **Dispatch.** Flyt loads your latest SimBrief plan. Pick an aircraft from the fleet and your network (Offline, VATSIM or IVAO), then dispatch.
+5. **Fly.** Start the sim. Flyt finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
 6. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
-   - **Submit Flight:** Tailwind checks the flight against the rules below and tells you whether it was **accepted** or **rejected**, with your landing grade. Press **View Debrief** to see how it went.
+   - **Submit Flight:** Flyt checks the flight against the rules below and tells you whether it was **accepted** or **rejected**, with your landing grade. Press **View Debrief** to see how it went.
    - **Discard Flight:** throws the flight away. Nothing is logged, and nothing counts for or against you.
 
 Changed your mind mid-flight? **Cancel Flight** stops tracking and clears the plan at any time before the flight is complete. Nothing is logged and there's no penalty.
 
 ### Simulators
 
-| Sim | How Tailwind connects |
+| Sim | How Flyt connects |
 |---|---|
 | MSFS 2020 / 2024 | SimConnect, automatic |
 | Prepar3D | FSUIPC (free version is good enough, automatic. The sim must run on the same PC |
@@ -53,7 +53,7 @@ A rejected flight stays in your logbook, marked **REJECTED** with the reason and
 Also:
 - **Landing rate** is sampled 20 times per second around touchdown, so what you see is what you actually hit. If you bounce, the hardest touchdown counts.
 - **Online flights:** if you dispatch on VATSIM or IVAO, you must be connected to that network for at least half of the flight for it to count as online. If the network's data feed can't be reached, or your internet drops, that time isn't held against you. Your hours are always logged either way.
-- **Crashes:** if the app, simulator or PC crashes mid-flight, Tailwind offers to **resume** the flight on next start. That includes a flight you'd landed but not yet submitted.
+- **Crashes:** if the app, simulator or PC crashes mid-flight, Flyt offers to **resume** the flight on next start. That includes a flight you'd landed but not yet submitted.
 
 ### Landing grade
 
@@ -121,10 +121,10 @@ Only accepted flights count toward your stats.
 Everything that's yours lives in:
 
 ```
-%LOCALAPPDATA%\Tailwind ACARS
+%LOCALAPPDATA%\Flyt ACARS
 ```
 
-That includes the logbook database, fleet, aircraft photos and the log file. It's separate from the program, so reinstalling or updating never touches it. To start over as a new pilot, close Tailwind and delete `acars.db` from that folder. The About box (click the version number in the sidebar) has an **Open Data Folder** button.
+That includes the logbook database, fleet, aircraft photos and the log file. It's separate from the program, so reinstalling or updating never touches it. To start over as a new pilot, close Flyt and delete `acars.db` from that folder. The About box (click the version number in the sidebar) has an **Open Data Folder** button.
 
 If something goes wrong, `acars.log` in that folder is the first thing to send.
 
@@ -134,10 +134,10 @@ Backup and Restore: backup your data and restore it.
 
 The About box (click the version number in the sidebar) has **Back Up...** and **Restore...** buttons.
 
-- **Back Up** saves your logbook, fleet, profile and aircraft photos to a single `.zip` file wherever you choose. It's safe to do while Tailwind is running.
-- **Restore** replaces your current data with a backup's. It shows what's in the backup (date, version, flights, aircraft) and asks before it changes anything. Your current data is saved first, to `backups\pre-restore-<date>.zip` in the data folder, so a restore can always be undone by restoring that file. Tailwind then restarts with the restored data.
+- **Back Up** saves your logbook, fleet, profile and aircraft photos to a single `.zip` file wherever you choose. It's safe to do while Flyt is running.
+- **Restore** replaces your current data with a backup's. It shows what's in the backup (date, version, flights, aircraft) and asks before it changes anything. Your current data is saved first, to `backups\pre-restore-<date>.zip` in the data folder, so a restore can always be undone by restoring that file. Flyt then restarts with the restored data.
 - You can't restore while a flight is dispatched or waiting to be submitted. Finish, submit, discard or cancel it first.
-- Backups from older versions of Tailwind restore fine. A backup made by a newer version can't be restored until you update Tailwind.
+- Backups from older versions of Flyt restore fine. A backup made by a newer version can't be restored until you update Flyt.
 
 ---
 
@@ -165,17 +165,17 @@ Build the app and installer:
 python build.py
 ```
 
-- `dist\Tailwind\` holds the app (`Tailwind.exe` plus `_internal\`, which always go together).
-- `dist\Tailwind-Setup-<version>.exe` is the installer. It's only built if [Inno Setup](https://jrsoftware.org/isdl.php) is installed.
+- `dist\Flyt\` holds the app (`Flyt.exe` plus `_internal\`, which always go together).
+- `dist\Flyt-Setup-<version>.exe` is the installer. It's only built if [Inno Setup](https://jrsoftware.org/isdl.php) is installed.
 
 Without the `SimConnect` package, the build supports X-Plane only.
 
-The landing grade's numbers all live at the top of `core/landing_grade.py`. Change them there, and every logged flight is re-graded the next time Tailwind starts.
+The landing grade's numbers all live at the top of `core/landing_grade.py`. Change them there, and every logged flight is re-graded the next time Flyt starts.
 
 ## Licence
 
-Tailwind ACARS is free software under the **GNU Affero General Public License v3.0**. See [LICENSE](LICENSE). It comes with no warranty.
+Flyt ACARS is free software under the **GNU Affero General Public License v3.0**. See [LICENSE](LICENSE). It comes with no warranty.
 
 It's built on Qt / PySide6 (LGPL-3.0), Python-SimConnect (AGPL-3.0), MapLibre GL JS and OpenStreetMap data, among others. See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) for the full list.
 
-Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their respective owners. Tailwind ACARS isn't affiliated with or endorsed by Microsoft, Lockheed Martin, Laminar Research, Navigraph, VATSIM or IVAO.
+Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their respective owners. Flyt ACARS isn't affiliated with or endorsed by Microsoft, Lockheed Martin, Laminar Research, Navigraph, VATSIM or IVAO.

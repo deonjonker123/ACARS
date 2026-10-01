@@ -1,7 +1,7 @@
 """
 build.py
 
-Builds the standalone Windows app: dist/Tailwind/Tailwind.exe (plus the
+Builds the standalone Windows app: dist/Flyt/Flyt.exe (plus the
 files it needs, in the same folder). Run from the project folder with the
 venv active:
 
@@ -17,11 +17,11 @@ What it does:
      a single-file .exe would unpack ~400 MB of Qt on every launch), with
      the read-only files bundled: assets/ (except uploaded aircraft photos)
      and data/fleet_and_ranks.json + data/airports.csv.
-  4. Builds the installer dist/Tailwind-Setup-<version>.exe with Inno Setup.
+  4. Builds the installer dist/Flyt-Setup-<version>.exe with Inno Setup.
 
 Your logbook, fleet, photos and log are NOT part of the build - they live
-in %LOCALAPPDATA%\\Tailwind ACARS (core/paths.py), so rebuilding never
-touches them. Each build replaces dist/Tailwind completely.
+in %LOCALAPPDATA%\\Flyt ACARS (core/paths.py), so rebuilding never
+touches them. Each build replaces dist/Flyt completely.
 """
 
 import glob
@@ -37,7 +37,7 @@ from version import APP_VERSION
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 DIST_DIR = os.path.join(PROJECT_DIR, "dist")
-APP_NAME = "Tailwind"
+APP_NAME = "Flyt"
 ICON_SOURCE = os.path.join(PROJECT_DIR, "assets", "app_icon.png")
 ICON_FILE = os.path.join(BUILD_DIR, "app_icon.ico")
 VERSION_FILE = os.path.join(BUILD_DIR, "version_info.txt")
@@ -45,7 +45,7 @@ ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 ASSETS_SKIP = {"aircraft"}
 DATA_FILES = ("fleet_and_ranks.json", "airports.csv")
 ROOT_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.txt")
-INSTALLER_SCRIPT = os.path.join(PROJECT_DIR, "installer", "tailwind.iss")
+INSTALLER_SCRIPT = os.path.join(PROJECT_DIR, "installer", "Flyt.iss")
 ISCC_KNOWN_PATHS = (
     r"C:\Program Files\Inno Setup 7\ISCC.exe",
     r"C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
@@ -189,7 +189,7 @@ def find_iscc():
 
 
 def build_installer():
-    """dist/Tailwind-Setup-<version>.exe from installer/tailwind.iss, if Inno
+    """dist/Flyt-Setup-<version>.exe from installer/Flyt.iss, if Inno
     Setup is installed. Returns its path, or None if skipped."""
     iscc = find_iscc()
     if iscc is None:

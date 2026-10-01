@@ -108,16 +108,19 @@ class MainWindow(QMainWindow):
         logo_container = QWidget()
         logo_layout = QVBoxLayout(logo_container)
         logo_layout.setContentsMargins(20, 0, 20, 0)
+
         if logo_exists():
             pixmap = QPixmap(LOGO_PATH)
             logo_label = QLabel()
-            logo_label.setPixmap(pixmap.scaledToHeight(40, Qt.SmoothTransformation))
-            logo_layout.addWidget(logo_label)
+            logo_label.setPixmap(
+                pixmap.scaledToHeight(65, Qt.SmoothTransformation)
+            )
+            logo_layout.addWidget(logo_label, alignment=Qt.AlignHCenter)
         else:
-            logo_label = QLabel("ACARS")
+            logo_label = QLabel("Flyt")
             logo_label.setFont(font_heading(20))
             logo_label.setStyleSheet(f"color: {PALETTE['text_primary']};")
-            logo_layout.addWidget(logo_label)
+            logo_layout.addWidget(logo_label, alignment=Qt.AlignHCenter)
         layout.addWidget(logo_container)
         self.utc_clock = QLabel()
         self.utc_clock.setFont(font_label(10))

@@ -310,7 +310,7 @@ class HomePage(QWidget):
         except FlightDispatchError as e:
             inform(self, "Not Dispatched", str(e))
             return
-        QSettings("Tailwind", "ACARS").setValue("last_network", network)
+        QSettings("Flyt", "ACARS").setValue("last_network", network)
         self._refresh_dispatch_ui()
 
     def _populate_networks(self):
@@ -318,7 +318,7 @@ class HomePage(QWidget):
         isn't in Settings. Pre-selects the last network dispatched with."""
         pilot = self.db.get_pilot() or {}
         ids = {"VATSIM": pilot.get("vatsim_id"), "IVAO": pilot.get("ivao_id")}
-        wanted = self.network_combo.currentData() or QSettings("Tailwind", "ACARS").value("last_network", "OFFLINE")
+        wanted = self.network_combo.currentData() or QSettings("Flyt", "ACARS").value("last_network", "OFFLINE")
 
         self.network_combo.clear()
         self.network_combo.addItem("Offline", "OFFLINE")
@@ -758,7 +758,7 @@ class HomePage(QWidget):
                f"Before your first flight, set {' and '.join(missing)} in Settings.",
                [("settings", "Open Settings", POSITIVE)], default="settings", escape="settings",
                details="Your SimBrief Pilot ID is the number on simbrief.com under Account Settings - "
-                       "Tailwind fetches your flight plans with it. VATSIM and IVAO IDs are optional.")
+                       "Flyt fetches your flight plans with it. VATSIM and IVAO IDs are optional.")
 
         main_window = self.window()
         if hasattr(main_window, "navigate_to"):

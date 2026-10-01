@@ -81,7 +81,7 @@ class SettingsPage(QWidget):
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(16)
 
-        card, grid = self._section("PILOT", "How you appear in Tailwind, and your home airport.")
+        card, grid = self._section("PILOT", "How you appear in Flyt, and your home airport.")
         self.name_input, name_box, _ = self._field("PILOT NAME", "e.g. Jane Doe")
         self.home_input, home_box, self.home_hint = self._field("HOME AIRPORT", "ICAO, e.g. KLAX", hint="")
         self.home_input.setMaxLength(4)
@@ -92,7 +92,7 @@ class SettingsPage(QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(16)
-        card, grid = self._section("FLIGHT PLANNING", "Tailwind fetches your latest SimBrief flight plan with this ID.")
+        card, grid = self._section("FLIGHT PLANNING", "Flyt fetches your latest SimBrief flight plan with this ID.")
         self.simbrief_input, box, _ = self._field("SIMBRIEF PILOT ID", "e.g. 123456",
                                                   hint="SimBrief → Account Settings → Pilot ID")
         grid.addWidget(box, 0, 0, 1, 2)

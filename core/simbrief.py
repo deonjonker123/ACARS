@@ -215,7 +215,7 @@ def fetch_latest_ofp(pilot_id):
         raise SimBriefError("No SimBrief Pilot ID set. Add it on the Settings page.")
 
     url = f"{API_URL}?{urllib.parse.urlencode({'userid': pilot_id, 'json': 1})}"
-    request = urllib.request.Request(url, headers={"User-Agent": "Tailwind-ACARS"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Flyt-ACARS"})
 
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:

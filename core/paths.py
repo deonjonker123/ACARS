@@ -2,7 +2,7 @@
 core/paths.py
 
 Where the app's files live - the same whether it runs from PyCharm
-(python main.py) or as the built Tailwind.exe (build.py / PyInstaller).
+(python main.py) or as the built Flyt.exe (build.py / PyInstaller).
 
 Two kinds of files:
   - Bundled, read-only: assets/ (fonts, badges, logo, icon, map) and
@@ -12,7 +12,7 @@ Two kinds of files:
     file, as they always have. RESOURCE_DIR points there.
   - The pilot's own data, which must survive rebuilds: the database
     (logbook, fleet, profile), uploaded aircraft photos and the log file.
-    These live in USER_DATA_DIR - %LOCALAPPDATA%\\Tailwind ACARS on
+    These live in USER_DATA_DIR - %LOCALAPPDATA%\\Flyt ACARS on
     Windows - for both ways of running the app, so there's one logbook.
 
 migrate_legacy_data() is called once at startup (main.py): if the data
@@ -29,9 +29,9 @@ import shutil
 import sqlite3
 import sys
 
-APP_NAME = "Tailwind"
-DATA_FOLDER_NAME = "Tailwind ACARS"
-APP_USER_MODEL_ID = "Tailwind.ACARS"
+APP_NAME = "Flyt"
+DATA_FOLDER_NAME = "Flyt ACARS"
+APP_USER_MODEL_ID = "Flyt.ACARS"
 
 FROZEN = bool(getattr(sys, "frozen", False))
 

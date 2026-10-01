@@ -189,7 +189,7 @@ class FlightDatabase:
 
     def _seed_fleet_once(self, conn):
         """First run only: turns every aircraft in fleet_and_ranks.json into
-        a fleet airframe with a generated Tailwind registration. Guarded by
+        a fleet airframe with a generated Flyt registration. Guarded by
         an app_meta flag so deleting aircraft later never brings them back."""
         seeded = conn.execute(
             "SELECT value FROM app_meta WHERE key = 'fleet_seeded'"
@@ -208,7 +208,7 @@ class FlightDatabase:
         conn.execute("INSERT INTO app_meta (key, value) VALUES ('fleet_seeded', '1')")
 
     def _generate_registration(self, conn):
-        """Random unused Tailwind registration (N1TW .. N999TW). Checks
+        """Random unused Flyt registration (N1TW .. N999TW). Checks
         against every registration ever used, including retired aircraft."""
         taken = {r["registration"] for r in conn.execute("SELECT registration FROM aircraft")}
         free = [
@@ -216,7 +216,7 @@ class FlightDatabase:
             if f"N{n}{COMPANY_REG_SUFFIX}" not in taken
         ]
         if not free:
-            raise ValueError("No free Tailwind registrations left (N1TW-N999TW all used)")
+            raise ValueError("No free Flyt registrations left (N1TW-N999TW all used)")
         return random.choice(free)
 
     def generate_registration(self):

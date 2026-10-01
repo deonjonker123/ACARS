@@ -74,7 +74,7 @@ def handshake(dll, timeout=PROBE_TIMEOUT_S):
     reply, closes again. Returns "open", "not_running", "version_mismatch",
     "no_answer", "quit" or "exception <n>"."""
     handle = c_void_p()
-    if dll.SimConnect_Open(byref(handle), b"Tailwind connection check", None, 0, None, 0) < 0:
+    if dll.SimConnect_Open(byref(handle), b"Flyt connection check", None, 0, None, 0) < 0:
         return "not_running"
     try:
         deadline = time.monotonic() + timeout

@@ -10,8 +10,8 @@ loaded (see ui/splash.py).
 If a step fails, an error box says which one and why, and the app exits.
 
 Also sets up the Windows side of things: the app icon (window + taskbar)
-and a taskbar ID, so Windows groups and pins the app as Tailwind rather
-than as Python. When running as the built Tailwind.exe there's no console,
+and a taskbar ID, so Windows groups and pins the app as Flyt rather
+than as Python. When running as the built Flyt.exe there's no console,
 so everything the app prints goes to acars.log in the data folder
 (core/paths.py) instead.
 

@@ -94,21 +94,21 @@ def _family():
 
 PALETTE = {
     "bg":               "#0e0e0e",
-    "bg_sidebar":       "#1a1a1a",
-    "bg_panel":         "#1a1a1a",
-    "bg_panel_alt":     "#1a1a1a",
-    "bg_input":         "#272727",
+    "bg_sidebar":       "#0e0e0e",
+    "bg_panel":         "#151515",
+    "bg_panel_alt":     "#151515",
+    "bg_input":         "#151515",
 
-    "border":           "#3e3d40",
-    "border_light":     "#545554",
+    "border":           "#20201f",
+    "border_light":     "#2b2b2b",
 
-    "text_primary":     "#f5f6f6",
-    "text_secondary":   "#6c7381",
-    "text_muted":       "#606161",
+    "text_primary":     "#e9e8e8",
+    "text_secondary":   "#8f8f8f",
+    "text_muted":       "#3f3f3f",
 
-    "accent":           "#e4a125",
-    "accent_dim":       "#614b29",
-    "accent_bg":        "#1c1812",
+    "accent":           "#e9e8e8",
+    "accent_dim":       "#595a5a",
+    "accent_bg":        "#1f202c",
 
     "positive":         "#2d783d",
     "warning":          "#f37321",

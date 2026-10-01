@@ -50,7 +50,7 @@ def latest_release(timeout=TIMEOUT_SECONDS):
     """GitHub's latest full release as {"version", "url"}, or None if there
     isn't one or GitHub can't be reached. Never raises."""
     request = urllib.request.Request(LATEST_RELEASE_API, headers={
-        "User-Agent": "Tailwind-ACARS",
+        "User-Agent": "Flyt-ACARS",
         "Accept": "application/vnd.github+json",
     })
     try:
