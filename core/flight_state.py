@@ -36,6 +36,11 @@ Flight record (for the debrief), also in block_end:
   - "timeline": block_start, takeoff, touchdown, gear, flaps and
     block_end events, each {"type", "time", ...}
 
+Block end: all engines off (the connector's "engine_running" is False),
+on the ground AND parking brake set, held for BLOCK_END_HOLD_S. An engine
+failure in the air never ends the flight. block_end_time is when that
+parked state began, not when the hold ran out.
+
 Usage:
     tracker = FlightStateTracker()
     result = tracker.update(data)   # data = connector.read() dict
@@ -50,6 +55,7 @@ import math
 
 TRACK_INTERVAL_S = 20
 BOUNCE_WINDOW_S = 30
+BLOCK_END_HOLD_S = 10
 
 
 def _round(value, digits=0):
@@ -106,6 +112,7 @@ class FlightStateTracker:
         self.block_start_time = None
         self.block_end_time = None
         self.block_hours = None
+        self._parked_since = None
         self._prev = {}
         self.g_force_peak = None
         self.landing_g = None
@@ -372,8 +379,17 @@ class FlightStateTracker:
                 self.distance_nm += _haversine_nm(plat, plon, lat, lon)
             self._record_track(data, now)
 
-            if not engine_running and self.was_airborne:
-                self.block_end_time = now
+            parked = (not engine_running and on_ground == 1.0
+                      and bool(data.get("parking_brake")))
+            if not parked:
+                self._parked_since = None
+            elif self._parked_since is None:
+                self._parked_since = now
+            block_over = (self._parked_since is not None
+                          and now - self._parked_since >= BLOCK_END_HOLD_S)
+
+            if block_over and self.was_airborne:
+                self.block_end_time = self._parked_since
                 self.block_hours = (self.block_end_time - self.block_start_time) / 3600
                 self.fuel_at_block_end = data.get("fuel_total_weight")
                 self.arr_lat = data.get("latitude")
@@ -411,10 +427,11 @@ class FlightStateTracker:
                 })
                 self.state = "IDLE"
 
-            elif not engine_running and not self.was_airborne:
+            elif block_over and not self.was_airborne:
                 events.append({"type": "block_aborted", "time": now})
                 self.state = "IDLE"
                 self.block_start_time = None
+                self._parked_since = None
 
         self._prev = data
         return self._result(events)

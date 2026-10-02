@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(LOGO_PATH)
             logo_label = QLabel()
             logo_label.setPixmap(
-                pixmap.scaledToHeight(65, Qt.SmoothTransformation)
+                pixmap.scaledToHeight(55, Qt.SmoothTransformation)
             )
             logo_layout.addWidget(logo_label, alignment=Qt.AlignHCenter)
         else:
@@ -265,22 +265,22 @@ class MainWindow(QMainWindow):
         )
         name_col.addWidget(name_label)
 
+        total_hours = self.pilot_data.get("total_hours_flown") or 0
+        progress = PilotProgress(total_hours)
+        rank = progress.current_rank
+
         rank_row = QHBoxLayout()
         rank_row.setContentsMargins(0, 0, 0, 0)
         rank_row.setSpacing(6)
 
-        rank_label = QLabel(
-            self.pilot_data.get("rank") or "Student Pilot"
-        )
+        rank_label = QLabel(rank["name"])
         rank_label.setFont(font_label(10))
         rank_label.setStyleSheet(
             f"color: {PALETTE['accent']};"
         )
         rank_row.addWidget(rank_label)
 
-        badge_path = self._resolve_badge_path(
-            self.pilot_data.get("rank_badge_path")
-        )
+        badge_path = self._resolve_badge_path(f"badges/{rank['id']}.png")
 
         if badge_path and os.path.exists(badge_path):
             badge_label = QLabel()
@@ -301,9 +301,6 @@ class MainWindow(QMainWindow):
         progress_col = QVBoxLayout()
         progress_col.setContentsMargins(0, 10, 0, 0)
         progress_col.setSpacing(3)
-
-        total_hours = self.pilot_data.get("total_hours_flown") or 0
-        progress = PilotProgress(total_hours)
 
         bar = QProgressBar()
         bar.setObjectName("RankProgress")

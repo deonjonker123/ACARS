@@ -58,6 +58,8 @@ NUMERIC = {
     "vertical_speed":       ("sim/flightmodel/position/vh_ind_fpm", FAST_HZ, None),
     "eng1_combustion":      ("sim/flightmodel/engine/ENGN_running[0]", NORMAL_HZ, None),
     "eng2_combustion":      ("sim/flightmodel/engine/ENGN_running[1]", NORMAL_HZ, None),
+    "eng3_combustion":      ("sim/flightmodel/engine/ENGN_running[2]", NORMAL_HZ, None),
+    "eng4_combustion":      ("sim/flightmodel/engine/ENGN_running[3]", NORMAL_HZ, None),
     "altitude":             ("sim/flightmodel/position/elevation", NORMAL_HZ, M_TO_FT),
     "alt_above_ground":     ("sim/flightmodel/position/y_agl", NORMAL_HZ, M_TO_FT),
     "airspeed_indicated":   ("sim/flightmodel/position/indicated_airspeed", NORMAL_HZ, None),
@@ -201,7 +203,7 @@ class XPlaneConnector:
             raw["bank"] = abs(raw["bank"])
         if raw["airspeed_indicated"] is not None:
             raw["airspeed_indicated"] = max(0.0, raw["airspeed_indicated"])
-        raw["engine_running"] = bool(raw["eng1_combustion"]) or bool(raw.get("eng2_combustion"))
+        raw["engine_running"] = any(raw.get(f"eng{n}_combustion") for n in (1, 2, 3, 4))
         if raw["gear_handle_position"] is not None:
             raw["gear_handle_position"] = int(round(raw["gear_handle_position"]))
         if raw["flaps_handle_index"] is not None:
