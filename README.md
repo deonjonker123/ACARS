@@ -11,6 +11,7 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 1. Go to [**Releases**](https://github.com/deonjonker123/ACARS/releases) and download the latest `Flyt-Setup-x.y.z.exe`.
 2. Run it. It installs just for you, so there's no admin prompt. You can add a desktop shortcut during setup.
 3. Start Flyt. On first launch it asks you to fill in your pilot profile. Flyt comes with a sample fleet. This can be updated or deleted and new aircraft can be added to suit your needs.
+4. **Flying MSFS, Prepar3D or FSX?** Also install [**FSUIPC**](https://fsuipc.com): FSUIPC7 for MSFS 2020 / 2024, FSUIPC4/5/6 for P3D / FSX. The free version is all Flyt needs. When the FSUIPC7 installer offers to start FSUIPC7 automatically with MSFS, say yes. X-Plane needs nothing extra.
 
 > Windows SmartScreen may warn you that the installer is from an unknown publisher, because it isn't code-signed. Click **More info → Run anyway**.
 
@@ -25,8 +26,8 @@ Windows only. Free and open source ([AGPL-3.0](LICENSE)).
 1. **Settings.** Enter your pilot name and **SimBrief Pilot ID** (SimBrief → Account Settings → Pilot ID). If you fly online, also add your VATSIM or IVAO ID. A home airport is optional.
 2. **Plan** your flight on [SimBrief](https://www.simbrief.com) as usual.
 3. **Dispatch.** Flyt loads your latest SimBrief plan. Pick an aircraft from the fleet and your network (Offline, VATSIM or IVAO), then dispatch.
-5. **Fly.** Start the sim. Flyt finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
-6. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
+4. **Fly.** Start the sim (for MSFS and P3D, with FSUIPC running). Flyt finds and connects to it automatically, with nothing to select. Follow the flight on the **Live Map**. The sidebar clock shows the current time in UTC.
+5. **Park and submit.** Once you've parked and shut the engines down, the flight is complete. Choose:
    - **Submit Flight:** Flyt checks the flight against the rules below and tells you whether it was **accepted** or **rejected**, with your landing grade. Press **View Debrief** to see how it went.
    - **Discard Flight:** throws the flight away. Nothing is logged, and nothing counts for or against you.
 
@@ -36,8 +37,8 @@ Changed your mind mid-flight? **Cancel Flight** stops tracking and clears the pl
 
 | Sim | How Flyt connects |
 |---|---|
-| MSFS 2020 / 2024 | SimConnect, automatic |
-| Prepar3D | FSUIPC (free version is good enough, automatic. The sim must run on the same PC |
+| MSFS 2020 / 2024 | FSUIPC7 (the free version is enough), automatic. FSUIPC7 must be running on the same PC. |
+| Prepar3D / FSX | FSUIPC4/5/6 (the free version is enough), automatic. The sim must run on the same PC. |
 | X-Plane 11 / 12 | UDP on port 49000 (X-Plane's default), automatic. The sim must run on the same PC. |
 
 ---
@@ -97,7 +98,7 @@ Every submitted flight has a debrief. Open it from the popup after Submit, from 
 - **Flight profile:** altitude, IAS and ground speed over the whole flight.
 - **Landing:** the grade's breakdown, showing where you lost points, plus pitch, touchdown speed and how many times you touched down.
 - **Plan vs actual:** block time, fuel burned, distance and cruise altitude, against your SimBrief plan.
-- **Timeline:** block out, takeoff, gear and flap changes (gear extended over its speed limit is flagged), touchdowns and block in, in UTC.
+- **Timeline:** block out, takeoff, gear and flap changes, touchdowns and block in, in UTC. In X-Plane, gear extended over its speed limit is flagged too (FSUIPC doesn't report an aircraft's gear speed limit).
 
 ### Profile
 Your career in numbers:
@@ -150,7 +151,7 @@ git clone https://github.com/deonjonker123/ACARS.git
 cd ACARS
 python -m venv .venv
 .venv\Scripts\activate
-pip install PySide6 SimConnect pyinstaller
+pip install PySide6 pyinstaller
 ```
 
 Run it straight from source:
@@ -168,14 +169,12 @@ python build.py
 - `dist\Flyt\` holds the app (`Flyt.exe` plus `_internal\`, which always go together).
 - `dist\Flyt-Setup-<version>.exe` is the installer. It's only built if [Inno Setup](https://jrsoftware.org/isdl.php) is installed.
 
-Without the `SimConnect` package, the build supports X-Plane only.
-
 The landing grade's numbers all live at the top of `core/landing_grade.py`. Change them there, and every logged flight is re-graded the next time Flyt starts.
 
 ## Licence
 
 Flyt ACARS is free software under the **GNU Affero General Public License v3.0**. See [LICENSE](LICENSE). It comes with no warranty.
 
-It's built on Qt / PySide6 (LGPL-3.0), Python-SimConnect (AGPL-3.0), MapLibre GL JS and OpenStreetMap data, among others. See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) for the full list.
+It's built on Qt / PySide6 (LGPL-3.0), MapLibre GL JS and OpenStreetMap data, among others. See [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) for the full list.
 
-Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their respective owners. Flyt ACARS isn't affiliated with or endorsed by Microsoft, Lockheed Martin, Laminar Research, Navigraph, VATSIM or IVAO.
+Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their respective owners. Flyt ACARS isn't affiliated with or endorsed by Microsoft, Lockheed Martin, Laminar Research, Pete & John Dowson, Navigraph, VATSIM or IVAO.

@@ -129,7 +129,7 @@ def pyinstaller_args():
         "--workpath", os.path.join(BUILD_DIR, "pyinstaller"),
         "--specpath", BUILD_DIR,
         "--paths", PROJECT_DIR,
-        "--hidden-import", "connectors.msfs",
+        "--hidden-import", "connectors.fsuipc",
         "--hidden-import", "connectors.xplane",
     ]
 
@@ -153,10 +153,6 @@ def pyinstaller_args():
             sys.exit(f"Missing {source} - it has to be bundled with the app.")
         args += add_data(source, ".")
 
-    if importlib.util.find_spec("SimConnect") is not None:
-        args += ["--collect-all", "SimConnect"]
-    else:
-        print("  note:     SimConnect library not installed - the build will support X-Plane only")
     return args
 
 

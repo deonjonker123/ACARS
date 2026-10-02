@@ -2,20 +2,20 @@
 core/flight_state.py
 
 Takes normalized telemetry dicts (as produced by any connector, e.g.
-connectors.msfs.MSFSConnector.read()) one tick at a time, and turns them
-into flight-level facts: block start/end, distance flown, fuel burned,
-landing quality, gear/flap speed checks, and taxi timing.
+connectors.fsuipc.FSUIPCConnector.read()) one tick at a time, and turns
+them into flight-level facts: block start/end, distance flown, fuel
+burned, landing quality, gear/flap speed checks, and taxi timing.
 
-This module knows nothing about SimConnect, UDP, or any specific sim -
-it only understands the normalized dict shape. That's what lets the same
-tracker serve MSFS, P3D, and X-Plane connectors later.
+This module knows nothing about FSUIPC, UDP, or any specific sim - it
+only understands the normalized dict shape. That's what lets the same
+tracker serve MSFS, P3D / FSX (FSUIPC) and X-Plane.
 
 Landing rate: a flight's landing_vs is its HARDEST touchdown (most
 negative), so a bounce can't hide a hard first landing. Two sources:
-  - Sampled (preferred): connectors that watch touchdowns many times a
-    second (connectors/msfs.py, 20x) pass the rates caught since the last
-    tick in data["touchdowns"]. Only touchdowns after the flight has been
-    airborne count.
+    - Sampled (preferred): connectors that watch touchdowns many times a
+    second (fsuipc.py and xplane.py, 20x) pass the rates caught since the
+    last tick in data["touchdowns"]. Only touchdowns after the flight has
+    been airborne count.
   - 1 s fallback: when no sampled touchdown was caught (connector without
     a sampler, or the sampler failed), each touchdown seen at the normal
     ~1 s tick is the more negative of the last airborne reading and the

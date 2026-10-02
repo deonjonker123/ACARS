@@ -1,31 +1,25 @@
 """
-Auto connector: uses whichever sim is running - MSFS / P3D (SimConnect,
-connectors/msfs.py) or X-Plane (connectors/xplane.py) - with nothing to
+Auto connector: uses whichever sim is running - MSFS / P3D / FSX (FSUIPC,
+connectors/fsuipc.py) or X-Plane (connectors/xplane.py) - with nothing to
 set up. Same interface as the individual connectors, so
 core/flight_session.py just uses this one.
 
 While no sim is connected, each connect() call (the app retries every
 poll) looks for:
-  1. X-Plane    - (re)sends its UDP subscriptions and checks whether it has
-                  answered; never waits for it
-  2. MSFS       - SimConnect, after a background check that the sim really
-                  answers (connectors/simconnect_probe.py)
-  3. P3D / FSX  - FSUIPC (connectors/fsuipc.py), only once SimConnect has
-                  been checked and can't be used - P3D rejects MSFS's
-                  SimConnect as the wrong version
+  1. X-Plane            - (re)sends its UDP subscriptions and checks
+                          whether it has answered; never waits for it
+  2. MSFS / P3D / FSX   - FSUIPC (FSUIPC7 for MSFS), if its window is there
 The first one found is used, and logged.
 
-Opening SimConnect isn't proof MSFS / P3D is running - other software can
-accept the connection too, and then no data ever comes. So until the
-SimConnect connection has sent real data, X-Plane is still checked on
-every read() and takes over as soon as it answers.
+FSUIPC being there isn't proof a flight is: FSUIPC7 runs on its own and
+can be left open next to another sim. So while the FSUIPC connector has no
+data (its read() returns None until the sim is ready to fly), X-Plane is
+still checked on every read() and takes over as soon as it answers.
 
 When the connected sim goes away the connector drops it and goes back to
-searching, so switching sims needs no app restart:
-  - X-Plane: its read() raises once nothing has arrived for a few seconds.
-  - MSFS / P3D: SimConnect doesn't always report a closed sim, so a
-    SimConnect connection that has returned no data for NO_DATA_DROP_S is
-    dropped too (if MSFS is still running it's simply picked up again).
+searching, so switching sims needs no app restart: X-Plane's read()
+raises once nothing has arrived for a few seconds, FSUIPC's once its
+window stops answering.
 
 SIM_NAME is the connected sim's name, or "Searching for a running sim..."
 
@@ -42,7 +36,6 @@ import time
 from connectors.xplane import XPlaneConnector
 from connectors.fsuipc import FSUIPCConnector
 
-NO_DATA_DROP_S = 10.0
 SEARCHING = "Searching for a running sim..."
 
 
@@ -50,11 +43,7 @@ class AutoConnector:
     def __init__(self):
         self._xplane = XPlaneConnector()
         self._fsuipc = FSUIPCConnector()
-        self._msfs = None
-        self._msfs_unavailable = None
         self._active = None
-        self._last_data = None
-        self._msfs_proven = False
 
     @property
     def SIM_NAME(self):
@@ -67,33 +56,15 @@ class AutoConnector:
         if self._try_xplane():
             return
 
-        msfs = self._msfs_connector()
-        if msfs is not None:
-            try:
-                msfs.connect()
-            except Exception:
-                self._quietly_disconnect(msfs)
-            else:
-                self._use(msfs)
-                return
+        try:
+            self._fsuipc.connect()
+        except Exception:
+            self._quietly_disconnect(self._fsuipc)
+        else:
+            self._use(self._fsuipc)
+            return
 
-        if self._simconnect_ruled_out(msfs):
-            try:
-                self._fsuipc.connect()
-            except Exception:
-                self._quietly_disconnect(self._fsuipc)
-            else:
-                self._use(self._fsuipc)
-                return
-
-        raise ConnectionError("No sim found - looking for MSFS, P3D / FSX and X-Plane.")
-
-    @staticmethod
-    def _simconnect_ruled_out(msfs):
-        """FSUIPC is only tried once SimConnect has been checked and can't be
-        used (or isn't installed), so MSFS - which can run FSUIPC7 too -
-        still connects through SimConnect."""
-        return msfs is None or msfs.simconnect_check not in (None, "open")
+        raise ConnectionError("No sim found - looking for MSFS, P3D / FSX (FSUIPC) and X-Plane.")
 
     def read(self):
         if self._active is None:
@@ -104,21 +75,13 @@ class AutoConnector:
             self._drop()
             raise
 
-        now = time.monotonic()
-        if data is not None:
-            self._last_data = now
-            if self._active is self._msfs:
-                self._msfs_proven = True
-        elif self._active is self._msfs and not self._msfs_proven and self._try_xplane():
+        if data is None and self._active is self._fsuipc and self._try_xplane():
             return self._xplane.read()
-        elif self._active is self._msfs and now - self._last_data > NO_DATA_DROP_S:
-            self._drop()
-            raise ConnectionError("No data from MSFS - looking for a sim again.")
         return data
 
     def _try_xplane(self):
-        """Switches to X-Plane if it's answering (never waits). A SimConnect
-        connection that hasn't sent any data yet gives way to it."""
+        """Switches to X-Plane if it's answering (never waits). An FSUIPC
+        connection without data gives way to it."""
         try:
             self._xplane.connect()
         except ConnectionError:
@@ -138,22 +101,8 @@ class AutoConnector:
     def is_connected(self):
         return self._active is not None
 
-    def _msfs_connector(self):
-        """The MSFS connector, loaded on first use. None if the SimConnect
-        library isn't installed - X-Plane still works then."""
-        if self._msfs is None and self._msfs_unavailable is None:
-            try:
-                from connectors.msfs import MSFSConnector
-                self._msfs = MSFSConnector()
-            except ImportError as e:
-                self._msfs_unavailable = str(e)
-                print(f"[auto] MSFS support unavailable ({e}) - X-Plane only.")
-        return self._msfs
-
     def _use(self, connector):
         self._active = connector
-        self._last_data = time.monotonic()
-        self._msfs_proven = False
         print(f"[auto] {time.strftime('%H:%M:%S')} Connected: {connector.SIM_NAME}")
 
     def _drop(self):

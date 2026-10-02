@@ -30,26 +30,20 @@ given.
    which is made of many open-source components under their own licences
    (BSD-style and others); see https://doc.qt.io/qt-6/qtwebengine-licensing.html
 
-2. Python-SimConnect (Anthony Pray and contributors)
-   Licence: GNU Affero General Public License v3.0 (AGPL-3.0)
-   https://github.com/odwdinc/Python-SimConnect
-   Includes SimConnect.dll from the Microsoft Flight Simulator SDK
-   (Microsoft Corporation), redistributed as part of that package.
-
-3. Python (Python Software Foundation)
+2. Python (Python Software Foundation)
    Licence: Python Software Foundation License Version 2
    https://docs.python.org/3/license.html
 
-4. PyInstaller bootloader (PyInstaller Development Team)
+3. PyInstaller bootloader (PyInstaller Development Team)
    Licence: GPL-2.0 with the PyInstaller bootloader exception, which allows
    it to be distributed as part of an application under any licence.
    https://pyinstaller.org/en/stable/license.html
 
-5. MapLibre GL JS (MapLibre contributors), loaded at runtime from unpkg.com
+4. MapLibre GL JS (MapLibre contributors), loaded at runtime from unpkg.com
    Licence: BSD 3-Clause
    https://github.com/maplibre/maplibre-gl-js
 
-6. Map data and tiles (loaded at runtime, not bundled)
+5. Map data and tiles (loaded at runtime, not bundled)
    - Map data (c) OpenStreetMap contributors, available under the Open
      Database License (ODbL) - https://www.openstreetmap.org/copyright
    - OpenFreeMap (https://openfreemap.org) and OpenMapTiles
@@ -57,19 +51,27 @@ given.
    - CARTO basemaps (c) CARTO (https://carto.com/attributions) - backup tiles
    Attribution is shown on the maps inside the app.
 
-7. Roboto font (Google)
+6. Roboto font (Google)
    Licence: Apache License 2.0
    https://github.com/googlefonts/roboto
 
-8. EB Garamond font (Georg Duffner, Octavio Pardo)
+7. EB Garamond font (Georg Duffner, Octavio Pardo)
    Licence: SIL Open Font License 1.1
    https://github.com/octaviopardo/EBGaramond12
 
-9. Material Design icons (Google): the aircraft marker on the Live Map
+8. Material Design icons (Google): the aircraft marker on the Live Map
    and the sidebar navigation icons
 
-10. OurAirports airport data (data/airports.csv)
-    Released into the public domain - https://ourairports.com/data/
+9. OurAirports airport data (data/airports.csv)
+   Released into the public domain - https://ourairports.com/data/
+
+Software the user installs separately (not bundled)
+---------------------------------------------------
+- FSUIPC (Pete & John Dowson) - FSUIPC7 for Microsoft Flight Simulator,
+  FSUIPC4/5/6 for Prepar3D and FSX. https://fsuipc.com
+  No FSUIPC code or files are included with Flyt ACARS; it talks to the
+  user's own FSUIPC installation through FSUIPC's documented IPC
+  interface. The free, unregistered version is sufficient.
 
 Online services used (not bundled; each user's own account/IDs)
 ---------------------------------------------------------------
@@ -81,4 +83,5 @@ Online services used (not bundled; each user's own account/IDs)
 
 Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their
 respective owners. Flyt ACARS is not affiliated with or endorsed by
-Microsoft, Lockheed Martin, Laminar Research, Navigraph, VATSIM or IVAO.
+Microsoft, Lockheed Martin, Laminar Research, Pete & John Dowson,
+Navigraph, VATSIM or IVAO.

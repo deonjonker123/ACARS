@@ -1,11 +1,11 @@
 """
 connectors/fsuipc.py
 
-P3D / FSX connector through FSUIPC (FSUIPC4/5/6 inside the sim). Same job
-and interface as connectors/msfs.py: return the normalized telemetry dict
-in the same shape and units, so core/flight_state.py can't tell the
-difference. Used for sims that reject MSFS's SimConnect (P3D answers it
-with a version mismatch) - see connectors/auto.py.
+MSFS / P3D / FSX connector through FSUIPC: FSUIPC7 for MSFS 2020 / 2024
+(a separate program next to the sim), FSUIPC4/5/6 inside P3D / FSX. Same
+job and interface as connectors/xplane.py: return the normalized
+telemetry dict in the same shape and units, so core/flight_state.py can't
+tell the difference. See connectors/auto.py.
 
 No extra packages and no DLL: FSUIPC's IPC is plain Windows messaging and
 shared memory, done here with ctypes, following FSUIPC's own 64-bit client
@@ -20,27 +20,40 @@ shared memory, done here with ctypes, following FSUIPC's own 64-bit client
     DWORD ends the list
 The free, unregistered FSUIPC is enough for this.
 
+FSUIPC can answer while there's no flight to read: FSUIPC7 runs on its own
+and can be up before MSFS (or still sitting in the menus). Until the sim
+is ready to fly (offset 0x3364 is zero and there's a position), read()
+returns None - like a connector that has no data yet. The sim's name is
+re-read on every read(), since FSUIPC7 says MSFS 2020 until it has
+connected to MSFS 2024.
+
+MSFS gives ATC type and model as localization keys
+("ATCCOM.AC_MODEL A320.0.text"), cut off at FSUIPC's 24 bytes; only the
+name part is kept.
+
 Usage:
     connector = FSUIPCConnector()
     connector.connect()       # raises ConnectionError if FSUIPC isn't there
-    data = connector.read()   # -> dict like MSFSConnector.read()
+    data = connector.read()   # -> telemetry dict, or None while not ready
     connector.disconnect()
 
-Touchdowns: like the MSFS sampler, a background thread reads on-ground,
-vertical speed, G, attitude and speeds 20x a second and hands each
-touchdown over in data["touchdowns"] as {"vs", "g", "bank", "pitch",
-"ias", "gs"}; one only counts after MIN_AIRBORNE_S in the air, and G is
-the peak over the following half second.
+Touchdowns: read() is only called about once a second, so a background
+thread reads on-ground, vertical speed, G, attitude and speeds 20x a
+second and hands each touchdown over in data["touchdowns"] as {"vs", "g",
+"bank", "pitch", "ias", "gs"}; one only counts after MIN_AIRBORNE_S in
+the air, and G is the peak over the following half second.
 
 Units match the other connectors: ft, kt, fpm, lbs, degrees. Heading is
 magnetic. Flaps and gear are FSUIPC's 0-16383 handle positions turned
 into 0-1 (flaps, like X-Plane) and 0/1 (gear).
 
-Run this file with P3D running to check the values against the cockpit:
+Run this file with the sim and FSUIPC running to check the values
+against the cockpit:
     python -m connectors.fsuipc
 """
 
 import ctypes
+import re
 import struct
 import sys
 import threading
@@ -63,7 +76,6 @@ M_TO_FT = 3.28084
 MS_TO_KT = 1.943844
 ANGLE = 360.0 / (65536.0 * 65536.0)
 
-# key: (offset, size, format) - struct formats, little-endian
 OFFSETS = {
     "latitude":          (0x0560, 8, "q"),
     "longitude":         (0x0568, 8, "q"),
@@ -89,6 +101,8 @@ OFFSETS = {
     "atc_id":            (0x313C, 12, "s"),
     "atc_type":          (0x3160, 24, "s"),
     "atc_model":         (0x3500, 24, "s"),
+    "not_ready":         (0x3364, 1, "B"),
+    "fs_version":        (0x3308, 2, "H"),
 }
 FAST_KEYS = ("on_ground", "vs", "g_force", "pitch", "bank", "ias", "gs")
 
@@ -97,6 +111,20 @@ def _decode(fmt, raw):
     if fmt == "s":
         return raw.split(b"\x00", 1)[0].decode("latin-1").strip() or None
     return struct.unpack("<" + fmt, raw)[0]
+
+
+_ATCCOM_PATTERN = re.compile(r"ATCCOM\.(?:ATC_NAME|AC_MODEL)[ _]*([^.]*)")
+
+
+def _sanitize_atccom(raw):
+    """MSFS's "ATCCOM.AC_MODEL A320.0.text" (possibly cut short) -> "A320".
+    Anything else is returned as it is."""
+    if raw is None:
+        return None
+    match = _ATCCOM_PATTERN.match(raw)
+    if match:
+        return match.group(1).strip() or None
+    return raw
 
 
 def build_request(reads, writes=()):
@@ -257,7 +285,7 @@ def _fpm(raw):
 
 
 class _TouchdownSampler(threading.Thread):
-    """Same job as the MSFS one - see the module docstring."""
+    """Catches touchdowns between read()s - see the module docstring."""
 
     def __init__(self, link):
         super().__init__(name="FSUIPCTouchdownSampler", daemon=True)
@@ -324,7 +352,7 @@ class _TouchdownSampler(threading.Thread):
         self._stop_event.set()
 
 
-FS_NAMES = {8: "FSX", 9: "ESP", 10: "P3D", 11: "FSX-SE", 12: "P3D"}
+FS_NAMES = {8: "FSX", 9: "ESP", 10: "P3D", 11: "FSX-SE", 12: "P3D", 13: "MSFS 2020", 14: "MSFS 2024"}
 
 
 def normalize(v):
@@ -353,8 +381,8 @@ def normalize(v):
         "fuel_total_weight": float(v["fuel_lbs"]),
         "total_weight": v["total_weight"],
         "title": v["title"],
-        "atc_type": v["atc_type"],
-        "atc_model": v["atc_model"],
+        "atc_type": _sanitize_atccom(v["atc_type"]),
+        "atc_model": _sanitize_atccom(v["atc_model"]),
         "atc_id": v["atc_id"],
         "gear_handle_position": 1 if v["gear_handle"] >= 8192 else 0,
         "flaps_handle_index": round(v["flaps_handle"] / 16383.0, 2),
@@ -363,8 +391,14 @@ def normalize(v):
     }
 
 
+def is_ready(v):
+    """True once the sim has a flight loaded: not in the menus or loading,
+    and somewhere other than exactly 0, 0."""
+    return not v["not_ready"] and (v["latitude"] != 0 or v["longitude"] != 0)
+
+
 class FSUIPCConnector:
-    SIM_NAME = "P3D / FSX (FSUIPC)"
+    SIM_NAME = "FSUIPC"
 
     def __init__(self, transport=None):
         self._transport = transport
@@ -376,9 +410,7 @@ class FSUIPCConnector:
         link = FSUIPCLink(self._transport)
         link.open()
         self._link = link
-        name = FS_NAMES.get(link.fs_version)
-        if name:
-            self.SIM_NAME = f"{name} (FSUIPC)"
+        self._set_name(link.fs_version)
         self._sampler = _TouchdownSampler(link)
         self._sampler.start()
 
@@ -394,11 +426,20 @@ class FSUIPCConnector:
     def is_connected(self):
         return self._link is not None
 
+    def _set_name(self, fs_version):
+        name = FS_NAMES.get(fs_version)
+        self.SIM_NAME = f"{name} (FSUIPC)" if name else "FSUIPC"
+
     def read(self):
-        """The telemetry dict. Raises ConnectionError if FSUIPC went away."""
+        """The telemetry dict, or None while the sim isn't ready to fly.
+        Raises ConnectionError if FSUIPC went away."""
         if self._link is None:
             raise ConnectionError("Not connected to FSUIPC.")
-        data = normalize(self._link.read(tuple(OFFSETS)))
+        values = self._link.read(tuple(OFFSETS))
+        self._set_name(values["fs_version"])
+        if not is_ready(values):
+            return None
+        data = normalize(values)
         data["touchdowns"] = self._sampler.take() if self._sampler else []
         return data
 
@@ -413,14 +454,19 @@ if __name__ == "__main__":
                     connector.connect()
                     print(f"  Connected: {connector.SIM_NAME}")
                 d = connector.read()
-                print(f"  {d['title']!r} {d['atc_id']}  lat={d['latitude']:.4f} lon={d['longitude']:.4f}  "
+                if d is None:
+                    print(f"  [{connector.SIM_NAME}] connected, waiting for the sim to be ready to fly")
+                    time.sleep(1)
+                    continue
+                print(f"  [{connector.SIM_NAME}] {d['title']!r} {d['atc_id']}  lat={d['latitude']:.4f} lon={d['longitude']:.4f}  "
                       f"alt={d['altitude']:.0f} ft (AGL {d['alt_above_ground']:.0f})  hdg={d['heading_true']:.0f}  "
                       f"IAS={d['airspeed_indicated']:.0f} GS={d['ground_velocity']:.0f} kt  "
                       f"VS={d['vertical_speed']:.0f} fpm  G={d['g_force']:.2f}  "
                       f"pitch={d['pitch']:.1f} bank={d['bank']:.1f}  ground={d['on_ground']:.0f}  "
                       f"engine={d['engine_running']}  fuel={d['fuel_total_weight']:.0f} lb  "
                       f"gear={d['gear_handle_position']} flaps={d['flaps_handle_index']} brake={d['parking_brake']}"
-                      f"  touchdowns={d['touchdowns']}")
+                      f"  touchdowns={d['touchdowns']}"
+                      f"\n    type={d['atc_type']!r} model={d['atc_model']!r}")
             except ConnectionError as e:
                 print(" ", e)
                 connector.disconnect()

@@ -1,8 +1,8 @@
 """
 X-Plane connector (X-Plane 11 and 12, UDP "RREF" subscriptions).
 
-Same job and interface as connectors/msfs.py: talk to the sim and return a
-normalized dict of current sim state in the same shape and units, so
+Same job and interface as connectors/fsuipc.py: talk to the sim and return
+a normalized dict of current sim state in the same shape and units, so
 core/flight_state.py can't tell the two apart. No plugin and no X-Plane
 settings needed - X-Plane listens for these requests on UDP port 49000 out
 of the box.
@@ -28,11 +28,11 @@ read() raises ConnectionError once nothing has arrived for STALE_S
 Touchdown rate: on-ground and vertical speed stream at FAST_HZ (20x a
 second). Every airborne -> on-ground change is a touchdown, recorded as
 the more negative of the last airborne and first on-ground vertical speed
-(same rule as the MSFS sampler) and handed over in data["touchdowns"].
+(same rule as the FSUIPC sampler) and handed over in data["touchdowns"].
 
-Units match the MSFS connector: ft, kt, fpm, lbs, degrees. Heading is
-magnetic, like MSFS. Flaps are X-Plane's 0-1 handle ratio (MSFS gives a
-detent number) - the tracker only looks for changes, so either works.
+Units match the FSUIPC connector: ft, kt, fpm, lbs, degrees. Heading is
+magnetic, like FSUIPC's. Flaps are X-Plane's 0-1 handle ratio, the same
+as FSUIPC's - the tracker only looks for changes anyway.
 """
 
 import socket
@@ -177,7 +177,7 @@ class XPlaneConnector:
         return self._receiving()
 
     def read(self):
-        """The latest values in the MSFS connector's dict shape, or None if
+        """The latest values in the shared connector dict shape, or None if
         the core values haven't arrived yet. Raises ConnectionError once
         X-Plane has gone quiet for STALE_S."""
         if not self._receiving():
