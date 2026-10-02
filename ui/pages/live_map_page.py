@@ -24,23 +24,38 @@ the aircraft is closest to; it only ever moves forward along the route.
 Distance remaining is measured along that route.
 
 The map opens on the whole world; after that the view is left to the pilot.
+
+The NETWORK dropdown (Offline / VATSIM / IVAO) adds everyone online on that
+network: traffic as grey planes (the pilot's own aircraft, matched by the
+VATSIM/IVAO ID in Settings, is left out - it's already the plane above) and
+controllers as sector outlines and airport dots (core/networks.py,
+core/sectors.py). It's refreshed in the background every
+NETWORK_REFRESH_MS while this page is showing, and switches to the
+dispatched flight's network on a new dispatch. The choice is remembered.
+The ATC sector data is loaded once per session, on the first refresh.
 """
 
 import math
 import os
 import sys
+import time
+from datetime import datetime, timezone
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, QSettings
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from ui.theme import PALETTE, font_label
 from ui.widgets.map_view import MapView
+from core.networks import NetworkError, fetch_snapshot
+from core.sectors import SectorDataError, load_sector_data, refresh_cache
 
 TRACK_MIN_SPACING_NM = 0.5
 TRACK_MAX_POINTS = 3000
 TRACK_JUMP_NM = 20.0
+NETWORK_REFRESH_MS = 60000
+NETWORKS = (("Offline", "OFFLINE"), ("VATSIM", "VATSIM"), ("IVAO", "IVAO"))
 
 
 def _haversine_nm(a, b):
@@ -118,6 +133,49 @@ def thin_track(track):
     return track[:1] + track[1:-1][1::2] + track[-1:]
 
 
+class _NetworkMapWorker(QThread):
+    """Fetches one network's traffic and ATC off the UI thread (the feeds are
+    a few MB), plus the sector data if `sectors` is None. Each pilot gets
+    "dep_pos" / "arr_pos" ([lon, lat] or None) from the sector data's airport
+    list, for the route shown when hovering them. Emits
+    (network, map data or None, SectorData or None, error text or "")."""
+    finished_fetch = Signal(str, object, object, str)
+
+    def __init__(self, network, sectors, own_id):
+        super().__init__()
+        self.network, self.sectors, self.own_id = network, sectors, own_id
+
+    def run(self):
+        sectors, errors = self.sectors, []
+        try:
+            if sectors is None:
+                refresh_cache()
+                try:
+                    sectors = load_sector_data()
+                except SectorDataError as e:
+                    errors.append(str(e))
+            snapshot = fetch_snapshot(self.network)
+        except NetworkError as e:
+            self.finished_fetch.emit(self.network, None, sectors, str(e))
+            return
+        except Exception as e:
+            self.finished_fetch.emit(self.network, None, sectors, f"Unexpected error: {e}")
+            return
+
+        traffic = [t for t in snapshot["traffic"] if not (self.own_id and t["id"] == self.own_id)]
+        for t in traffic:
+            for key in ("dep", "arr"):
+                airport = sectors.airports.get(t[key].upper()) if sectors is not None and t[key] else None
+                t[key + "_pos"] = [airport["lon"], airport["lat"]] if airport else None
+        placed = sectors.place(snapshot["controllers"]) if sectors is not None else {}
+        self.finished_fetch.emit(self.network, {
+            "traffic": traffic,
+            "sectors": placed.get("sectors", []),
+            "stations": placed.get("stations", []),
+            "controller_count": len(snapshot["controllers"]),
+        }, sectors, "; ".join(errors))
+
+
 class LiveMapPage(QWidget):
     def __init__(self, db):
         super().__init__()
@@ -127,6 +185,9 @@ class LiveMapPage(QWidget):
         self._leg = 0
         self._track = []
         self._pilot_name = ""
+        self._sectors = None
+        self._network_worker = None
+        self._network_updated = 0.0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -142,7 +203,27 @@ class LiveMapPage(QWidget):
         self.status_label.setFont(font_label(9))
         strip_layout.addWidget(self.status_label)
         strip_layout.addStretch()
+        self.network_status = QLabel("")
+        self.network_status.setFont(font_label(9))
+        strip_layout.addWidget(self.network_status)
+        strip_layout.addSpacing(12)
+        network_title = QLabel("NETWORK")
+        network_title.setFont(font_label(9))
+        network_title.setStyleSheet(f"color: {PALETTE['text_secondary']};")
+        strip_layout.addWidget(network_title)
+        self.network_combo = QComboBox()
+        self.network_combo.setToolTip("Show online traffic and ATC on the map")
+        for label, value in NETWORKS:
+            self.network_combo.addItem(label, value)
+        saved = QSettings("Flyt", "ACARS").value("live_map_network", "OFFLINE")
+        self.network_combo.setCurrentIndex(max(0, self.network_combo.findData(saved)))
+        self.network_combo.currentIndexChanged.connect(self._on_network_changed)
+        strip_layout.addWidget(self.network_combo)
         layout.addWidget(strip)
+
+        self.network_timer = QTimer(self)
+        self.network_timer.setInterval(NETWORK_REFRESH_MS)
+        self.network_timer.timeout.connect(self._refresh_network)
 
         self.map = MapView()
         layout.addWidget(self.map, stretch=1)
@@ -165,6 +246,9 @@ class LiveMapPage(QWidget):
             self._set_status("NO FLIGHT DISPATCHED", PALETTE["text_secondary"])
         else:
             self._set_status(f"{self._flight_text()}  ·  NOT TRACKING", PALETTE["text_secondary"])
+            index = self.network_combo.findData(dispatch.get("network"))
+            if dispatch.get("network") in ("VATSIM", "IVAO") and index >= 0:
+                self.network_combo.setCurrentIndex(index)
 
     def track_state(self):
         """The flown track so far, for saving with the flight in progress
@@ -249,9 +333,74 @@ class LiveMapPage(QWidget):
         pilot = self.db.get_pilot() or {}
         self._pilot_name = pilot.get("name") or ""
 
+    def _selected_network(self):
+        return self.network_combo.currentData() or "OFFLINE"
+
+    def _on_network_changed(self, _index):
+        """A different network was picked: clear the old one's traffic and
+        ATC, then fetch the new one straight away (Offline just clears)."""
+        network = self._selected_network()
+        QSettings("Flyt", "ACARS").setValue("live_map_network", network)
+        self.map.set_network(None)
+        self._network_updated = 0.0
+        if network == "OFFLINE":
+            self.network_timer.stop()
+            self._set_network_status("", PALETTE["text_secondary"])
+            return
+        self._set_network_status(f"{network}  ·  LOADING...", PALETTE["text_secondary"])
+        if self.isVisible():
+            self.network_timer.start()
+            self._refresh_network()
+
+    def _refresh_network(self):
+        """Starts a background fetch of the selected network (skipped if one
+        is still running - its result is checked against the selection)."""
+        network = self._selected_network()
+        if network == "OFFLINE":
+            return
+        if self._network_worker is not None and self._network_worker.isRunning():
+            return
+        pilot = self.db.get_pilot() or {}
+        own_id = str(pilot.get("vatsim_id" if network == "VATSIM" else "ivao_id") or "").strip()
+        self._network_worker = _NetworkMapWorker(network, self._sectors, own_id)
+        self._network_worker.finished_fetch.connect(self._on_network_fetched)
+        self._network_worker.start()
+
+    def _on_network_fetched(self, network, data, sectors, error):
+        if sectors is not None:
+            self._sectors = sectors
+        if network != self._selected_network():
+            if self._selected_network() != "OFFLINE" and self.isVisible():
+                self._refresh_network()
+            return
+        if data is None:
+            self._set_network_status(f"{network}  ·  COULDN'T UPDATE", PALETTE["warning"])
+            self.network_status.setToolTip(error)
+            return
+
+        self._network_updated = time.monotonic()
+        self.map.set_network(data)
+        updated = datetime.now(timezone.utc).strftime("%H:%MZ")
+        text = (f"{network}  ·  {len(data['traffic']):,} PILOTS  ·  "
+                f"{data['controller_count']:,} ATC  ·  {updated}")
+        self._set_network_status(text, PALETTE["warning"] if error else PALETTE["text_secondary"])
+        self.network_status.setToolTip(error)
+
+    def _set_network_status(self, text, color):
+        self.network_status.setText(text)
+        self.network_status.setStyleSheet(f"color: {color};")
+
     def showEvent(self, event):
         super().showEvent(event)
         self._refresh_pilot_name()
+        if self._selected_network() != "OFFLINE":
+            self.network_timer.start()
+            if time.monotonic() - self._network_updated > NETWORK_REFRESH_MS / 1000:
+                self._refresh_network()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.network_timer.stop()
 
 
 if __name__ == "__main__":

@@ -43,7 +43,8 @@ ICON_FILE = os.path.join(BUILD_DIR, "app_icon.ico")
 VERSION_FILE = os.path.join(BUILD_DIR, "version_info.txt")
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 ASSETS_SKIP = {"aircraft"}
-DATA_FILES = ("fleet_and_ranks.json", "airports.csv")
+DATA_FILES = ("fleet_and_ranks.json", "airports.csv",
+              "VATSpy.dat", "Boundaries.geojson", "TRACONBoundaries.geojson")
 ROOT_FILES = ("LICENSE", "THIRD_PARTY_NOTICES.txt")
 INSTALLER_SCRIPT = os.path.join(PROJECT_DIR, "installer", "Flyt.iss")
 ISCC_KNOWN_PATHS = (

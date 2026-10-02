@@ -20,6 +20,21 @@ database or the sim. Python drives it through window.ACARS:
                  altitude_ft, ias_kt, remaining_nm}}
         Hovering the plane shows the popup plus the route (flown part
         solid, remaining part dashed); leaving it hides both.
+    ACARS.setNetwork(network)      online traffic + ATC (null removes them):
+        {traffic:  [{callsign, name, lat, lon, heading, altitude, groundspeed,
+                     aircraft, wake, dep, arr, dep_pos, arr_pos}],
+         sectors:  [{id, kind ("fir"/"uir"/"tracon"), name, geometry (GeoJSON),
+                     label: [lon, lat], controllers: [...]}],
+         stations: [{icao, name, lat, lon, controllers: [...]}]}
+        controllers: [{callsign, position, frequency, name, atis: [lines],
+                       rating, logon (Unix seconds)}]
+        (core/networks.py + core/sectors.py). Sectors are drawn as outlines
+        under everything else, each airport as a row of coloured badges (one
+        per service online - BADGES), traffic as grey planes sized by wake
+        category (WAKE_SCALE). Hovering shows who it is; hovering a plane
+        also shows its route (departure -> plane solid, plane -> arrival
+        dashed). Clicking a sector or a badge opens the controller details
+        panel at the top left (closed with its X, Esc or a click elsewhere).
     ACARS.resetView()              back to the whole-world view
 
 Calls made before the map has finished loading are queued and run once it
@@ -91,6 +106,57 @@ need an internet connection; without one a message is shown instead.
     .popup-route { color: var(--text); font-weight: 700; }
     .popup-aircraft { color: var(--text-secondary); }
     .popup-stats { color: var(--positive-text); }
+    .maplibregl-popup, .maplibregl-popup-content { pointer-events: none; }
+    .popup-atc { color: var(--text); }
+    .popup-note {
+        color: var(--text-secondary);
+        white-space: normal;
+        max-width: 340px;
+        font-size: 11px;
+        line-height: 1.4;
+    }
+
+    #atc-panel {
+        display: none;
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 3;
+        width: 320px;
+        max-height: calc(100% - 110px);
+        overflow-y: auto;
+        padding: 10px 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+        color: var(--text);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+    .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .panel-title { font-weight: 700; }
+    .panel-subtitle { color: var(--text-secondary); font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
+    .panel-close {
+        background: none;
+        border: none;
+        padding: 0 2px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .panel-close:hover { color: var(--text); }
+    .panel-controller { margin-top: 8px; padding: 4px 0 4px 8px; border-left: 3px solid var(--border); }
+    .panel-callsign { font-weight: 500; }
+    .panel-frequency { color: var(--positive-text); }
+    .panel-details { color: var(--text-secondary); font-size: 11px; }
+    .panel-atis {
+        margin-top: 2px;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
 
     .maplibregl-ctrl-group {
         background: var(--panel);
@@ -109,6 +175,7 @@ need an internet connection; without one a message is shown instead.
 <body>
 <div id="map"></div>
 <div id="message"></div>
+<div id="atc-panel"></div>
 
 <script>
 (function () {
@@ -148,6 +215,23 @@ need an internet connection; without one a message is shown instead.
         },
         layers: [{ id: "carto", type: "raster", source: "carto" }],
     };
+
+    const ATC_COLORS = { fir: "#4a9fd8", tracon: "#3fbfa0" };
+    const SECTOR_COLOR = ["match", ["get", "kind"], "tracon", ATC_COLORS.tracon, ATC_COLORS.fir];
+    const TRAFFIC_COLOR = "#aeb6c2";
+    const WAKE_SCALE = ["match", ["get", "wake"], "L", 0.6, "H", 1.35, "J", 1.6, 1];
+    const BADGES = [
+        { letter: "D", positions: ["DEL"], color: "#5b8def", title: "Delivery" },
+        { letter: "G", positions: ["GND"], color: "#3fbf6a", title: "Ground" },
+        { letter: "T", positions: ["TWR"], color: "#e05252", title: "Tower" },
+        { letter: "A", positions: ["APP", "DEP"], color: ATC_COLORS.tracon, title: "Approach / Departure" },
+        { letter: "C", positions: ["CTR", "FSS"], color: ATC_COLORS.fir, title: "Centre" },
+        { letter: "i", positions: ["ATIS"], color: "#c792ea", title: "ATIS" },
+    ];
+    const BADGE_SIZE = 16;
+    const BADGE_GAP = 2;
+    const KIND_TITLES = { fir: "Centre", uir: "Upper area", tracon: "Approach / Departure" };
+    const SECTOR_ATTRIBUTION = "ATC sectors: VATSpy Data Project, SimAware TRACON Project (CC BY-SA 4.0)";
 
     const R_NM = 3440.065;
     const toRad = d => d * Math.PI / 180;
@@ -233,6 +317,9 @@ need an internet connection; without one a message is shown instead.
         live: null,
         hovering: false,
         debrief: null,
+        network: null,
+        networkHover: null,
+        panelKey: null,
     };
 
     let ready = false;
@@ -245,6 +332,7 @@ need an internet connection; without one a message is shown instead.
         highlightFlight: id => whenReady(() => highlightFlight(id)),
         setLive: live => whenReady(() => setLive(live)),
         setDebrief: debrief => whenReady(() => setDebrief(debrief)),
+        setNetwork: network => whenReady(() => setNetwork(network)),
         resetView: () => whenReady(() => map.jumpTo(WORLD_VIEW)),
         _geo: { distanceNm, greatCircle, greatCirclePath, unwrap, formatAltitude },
     };
@@ -292,7 +380,7 @@ need an internet connection; without one a message is shown instead.
         }
     });
 
-    function makePlaneImage() {
+    function makePlaneImage(color) {
         const size = 48, ratio = 2;
         const canvas = document.createElement("canvas");
         canvas.width = size;
@@ -304,14 +392,14 @@ need an internet connection; without one a message is shown instead.
         ctx.lineJoin = "round";
         ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
         ctx.stroke(path);
-        ctx.fillStyle = COLORS.accent;
+        ctx.fillStyle = color;
         ctx.fill(path);
         return { image: ctx.getImageData(0, 0, size, size), pixelRatio: ratio };
     }
 
     function addLayers() {
         if (!map.hasImage("plane")) {
-            const plane = makePlaneImage();
+            const plane = makePlaneImage(COLORS.accent);
             map.addImage("plane", plane.image, { pixelRatio: plane.pixelRatio });
             map.addSource("debrief-planned", { type: "geojson", data: EMPTY });
             map.addSource("debrief-flown", { type: "geojson", data: EMPTY });
@@ -323,6 +411,32 @@ need an internet connection; without one a message is shown instead.
         map.addSource("live-flown", { type: "geojson", data: EMPTY });
         map.addSource("live-remaining", { type: "geojson", data: EMPTY });
         map.addSource("live-plane", { type: "geojson", data: EMPTY });
+        map.addSource("net-sectors", { type: "geojson", data: EMPTY, attribution: SECTOR_ATTRIBUTION });
+        map.addSource("net-sector-labels", { type: "geojson", data: EMPTY });
+        map.addSource("net-stations", { type: "geojson", data: EMPTY });
+        map.addSource("net-traffic", { type: "geojson", data: EMPTY });
+        map.addSource("net-route-flown", { type: "geojson", data: EMPTY });
+        map.addSource("net-route-remaining", { type: "geojson", data: EMPTY });
+        if (!map.hasImage("traffic-plane")) {
+            const traffic = makePlaneImage(TRAFFIC_COLOR);
+            map.addImage("traffic-plane", traffic.image, { pixelRatio: traffic.pixelRatio });
+        }
+
+        map.addLayer({
+            id: "net-sector-fill", type: "fill", source: "net-sectors",
+            paint: { "fill-color": SECTOR_COLOR, "fill-opacity": 0.1 },
+        });
+        map.addLayer({
+            id: "net-sector-line", type: "line", source: "net-sectors",
+            layout: { "line-join": "round" },
+            paint: { "line-color": SECTOR_COLOR, "line-opacity": 0.7, "line-width": 1 },
+        });
+        map.addLayer({
+            id: "net-sector-hover", type: "line", source: "net-sectors",
+            filter: ["==", ["get", "idx"], -1],
+            layout: { "line-join": "round" },
+            paint: { "line-color": SECTOR_COLOR, "line-width": 2.5 },
+        });
 
         map.addLayer({
             id: "history-lines", type: "line", source: "history",
@@ -344,6 +458,56 @@ need an internet connection; without one a message is shown instead.
                 "circle-stroke-width": 1,
             },
         });
+
+        map.addLayer({
+            id: "net-route-flown", type: "line", source: "net-route-flown",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": TRAFFIC_COLOR, "line-width": 1.8 },
+        });
+        map.addLayer({
+            id: "net-route-remaining", type: "line", source: "net-route-remaining",
+            layout: { "line-join": "round" },
+            paint: { "line-color": TRAFFIC_COLOR, "line-width": 1.5, "line-opacity": 0.8,
+                     "line-dasharray": [2, 2] },
+        });
+        map.addLayer({
+            id: "net-traffic", type: "symbol", source: "net-traffic",
+            layout: {
+                "icon-image": "traffic-plane",
+                "icon-size": ["interpolate", ["linear"], ["zoom"],
+                              1, ["*", 0.35, WAKE_SCALE], 6, ["*", 0.55, WAKE_SCALE]],
+                "icon-rotate": ["get", "heading"],
+                "icon-rotation-alignment": "map",
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+            },
+        });
+        map.addLayer({
+            id: "net-stations", type: "symbol", source: "net-stations",
+            layout: {
+                "icon-image": ["get", "row"],
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+            },
+        });
+        if (map.getStyle().glyphs) {
+            map.addLayer({
+                id: "net-sector-labels", type: "symbol", source: "net-sector-labels",
+                layout: { "text-field": ["get", "text"], "text-size": 10, "text-font": ["Noto Sans Regular"] },
+                paint: { "text-color": SECTOR_COLOR, "text-halo-color": COLORS.bg, "text-halo-width": 1.2 },
+            });
+            map.addLayer({
+                id: "net-station-labels", type: "symbol", source: "net-stations", minzoom: 4,
+                layout: {
+                    "text-field": ["get", "label"],
+                    "text-size": 10,
+                    "text-offset": [0, 0.8],
+                    "text-anchor": "top",
+                    "text-font": ["Noto Sans Regular"],
+                },
+                paint: { "text-color": COLORS.text, "text-halo-color": COLORS.bg, "text-halo-width": 1.2 },
+            });
+        }
 
         map.addLayer({
             id: "live-flown", type: "line", source: "live-flown",
@@ -402,6 +566,7 @@ need an internet connection; without one a message is shown instead.
         applyHighlight();
         renderLive();
         renderDebrief(false);
+        renderNetwork();
     }
 
     function setDebrief(debrief) {
@@ -612,6 +777,323 @@ need an internet connection; without one a message is shown instead.
 
     map.on("mouseenter", "live-plane", () => setHover(true));
     map.on("mouseleave", "live-plane", () => setHover(false));
+
+    function setNetwork(network) {
+        state.network = network || null;
+        renderNetwork();
+    }
+
+    function collection(features) {
+        return { type: "FeatureCollection", features };
+    }
+
+    function pointFeature(coords, properties) {
+        return { type: "Feature", properties, geometry: { type: "Point", coordinates: coords } };
+    }
+
+    function sectorLabel(sector) {
+        const controllers = sector.controllers || [];
+        if (!controllers.length) return sector.name || "";
+        return controllers[0].callsign + (controllers.length > 1 ? ` +${controllers.length - 1}` : "");
+    }
+
+    function stationBadges(station) {
+        const controllers = station.controllers || [];
+        return BADGES
+            .map(badge => ({ badge, controllers: controllers.filter(c => badge.positions.includes(c.position)) }))
+            .filter(group => group.controllers.length);
+    }
+
+    function badgeColor(position) {
+        const badge = BADGES.find(b => b.positions.includes(position));
+        return badge ? badge.color : COLORS.border;
+    }
+
+    function makeBadgeRow(letters) {
+        const ratio = 2;
+        const badges = letters.split("").map(l => BADGES.find(b => b.letter === l)).filter(Boolean);
+        const width = Math.max(1, badges.length * BADGE_SIZE + (badges.length - 1) * BADGE_GAP);
+        const canvas = document.createElement("canvas");
+        canvas.width = width * ratio;
+        canvas.height = BADGE_SIZE * ratio;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(ratio, ratio);
+        ctx.font = "bold 10px Roboto, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        badges.forEach((badge, i) => {
+            const x = i * (BADGE_SIZE + BADGE_GAP);
+            ctx.beginPath();
+            ctx.roundRect(x + 0.5, 0.5, BADGE_SIZE - 1, BADGE_SIZE - 1, 3);
+            ctx.fillStyle = badge.color;
+            ctx.fill();
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = "#0e0e0e";
+            ctx.fillText(badge.letter, x + BADGE_SIZE / 2, BADGE_SIZE / 2 + 0.5);
+        });
+        return { image: ctx.getImageData(0, 0, canvas.width, canvas.height), pixelRatio: ratio };
+    }
+
+    map.on("styleimagemissing", e => {
+        if (!e.id.startsWith("atc-row:") || map.hasImage(e.id)) return;
+        const row = makeBadgeRow(e.id.slice("atc-row:".length));
+        map.addImage(e.id, row.image, { pixelRatio: row.pixelRatio });
+    });
+
+    function renderNetwork() {
+        const sectorsSource = map.getSource("net-sectors");
+        if (!sectorsSource) return;
+        const n = state.network || {};
+        const sectors = n.sectors || [], stations = n.stations || [], traffic = n.traffic || [];
+
+        sectorsSource.setData(collection(sectors
+            .map((s, idx) => s && s.geometry
+                ? { type: "Feature", properties: { idx, kind: s.kind }, geometry: s.geometry }
+                : null)
+            .filter(Boolean)));
+        map.getSource("net-sector-labels").setData(collection(sectors
+            .map((s, idx) => s && validPoint(s.label)
+                ? pointFeature(s.label, { idx, kind: s.kind, text: sectorLabel(s) })
+                : null)
+            .filter(Boolean)));
+        map.getSource("net-stations").setData(collection(stations
+            .map((st, idx) => {
+                const groups = st && validPoint([st.lon, st.lat]) ? stationBadges(st) : [];
+                if (!groups.length) return null;
+                const row = "atc-row:" + groups.map(g => g.badge.letter).join("");
+                return pointFeature([st.lon, st.lat], { idx, row, label: st.icao });
+            })
+            .filter(Boolean)));
+        map.getSource("net-traffic").setData(collection(traffic
+            .map((t, idx) => t && validPoint([t.lon, t.lat])
+                ? pointFeature([t.lon, t.lat], {
+                    idx,
+                    heading: Number.isFinite(t.heading) ? t.heading : 0,
+                    wake: t.wake || "M",
+                })
+                : null)
+            .filter(Boolean)));
+
+        clearNetworkHover();
+        if (state.panelKey) renderPanel();
+    }
+
+    const networkPopup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 12,
+        maxWidth: "none",
+    });
+    const NETWORK_LAYERS = ["net-traffic", "net-stations", "net-sector-fill"];
+
+    function popupLines(rows) {
+        const root = document.createElement("div");
+        rows.forEach(([cls, text]) => {
+            if (!text) return;
+            const el = document.createElement("div");
+            el.className = cls;
+            el.textContent = text;
+            root.appendChild(el);
+        });
+        return root;
+    }
+
+    function controllerRows(controllers) {
+        const rows = [];
+        (controllers || []).forEach(c => {
+            rows.push(["popup-atc", [c.callsign, c.frequency, c.name].filter(Boolean).join("  ·  ")]);
+            (c.atis || []).slice(0, 2).forEach(line =>
+                rows.push(["popup-note", line.length > 160 ? line.slice(0, 157) + "…" : line]));
+        });
+        return rows;
+    }
+
+    function trafficContent(t) {
+        const speed = Number.isFinite(t.groundspeed) ? formatNumber(t.groundspeed) + " kt GS" : "—";
+        return popupLines([
+            ["popup-pilot", t.callsign || "—"],
+            ["popup-route", t.dep || t.arr ? `${t.dep || "—"} → ${t.arr || "—"}` : "No flight plan"],
+            ["popup-aircraft", [t.aircraft, t.name].filter(Boolean).join(" · ")],
+            ["popup-stats", `${formatAltitude(t.altitude)} · ${speed}`],
+        ]);
+    }
+
+    function atcContent(target) {
+        return popupLines([["popup-route", target.title || "—"], ["popup-aircraft", target.subtitle]]
+            .concat(controllerRows(target.controllers)));
+    }
+
+    function clearNetworkHover() {
+        state.networkHover = null;
+        if (map.getLayer("net-sector-hover")) map.setFilter("net-sector-hover", ["==", ["get", "idx"], -1]);
+        if (map.getSource("net-route-flown")) {
+            map.getSource("net-route-flown").setData(EMPTY);
+            map.getSource("net-route-remaining").setData(EMPTY);
+        }
+        networkPopup.remove();
+    }
+
+    function showTrafficRoute(t) {
+        const here = [t.lon, t.lat];
+        const flown = validPoint(t.dep_pos) ? unwrap(greatCircle(t.dep_pos, here)) : [];
+        const startLon = flown.length ? flown[flown.length - 1][0] : undefined;
+        const remaining = validPoint(t.arr_pos) ? unwrap(greatCircle(here, t.arr_pos), startLon) : [];
+        map.getSource("net-route-flown").setData(lineFeature(flown));
+        map.getSource("net-route-remaining").setData(lineFeature(remaining));
+    }
+
+    function sectorTarget(sector, idx) {
+        return {
+            key: "sector:" + sector.id, kind: "atc", sectorIdx: idx,
+            title: sector.name || "—", subtitle: KIND_TITLES[sector.kind] || "",
+            controllers: sector.controllers || [],
+        };
+    }
+
+    function stationTarget(station, group) {
+        return {
+            key: `station:${station.icao}:${group.badge.letter}`, kind: "atc", sectorIdx: -1,
+            title: [station.icao, station.name].filter(Boolean).join(" · "), subtitle: group.badge.title,
+            controllers: group.controllers,
+        };
+    }
+
+    function badgeAt(groups, stationPoint, point) {
+        const width = groups.length * BADGE_SIZE + (groups.length - 1) * BADGE_GAP;
+        const i = Math.floor((point.x - (stationPoint.x - width / 2)) / (BADGE_SIZE + BADGE_GAP));
+        return groups[Math.max(0, Math.min(groups.length - 1, i))];
+    }
+
+    function networkTarget(point) {
+        if (!state.network) return null;
+        const layers = NETWORK_LAYERS.filter(id => map.getLayer(id));
+        const hit = layers.length ? map.queryRenderedFeatures(point, { layers })[0] : null;
+        if (!hit) return null;
+        const n = state.network, idx = hit.properties.idx;
+        if (hit.layer.id === "net-traffic") {
+            const t = n.traffic && n.traffic[idx];
+            return t ? { key: "traffic:" + idx, kind: "traffic", sectorIdx: -1, traffic: t,
+                         at: hit.geometry.coordinates } : null;
+        }
+        if (hit.layer.id === "net-stations") {
+            const station = n.stations && n.stations[idx];
+            const groups = station ? stationBadges(station) : [];
+            if (!groups.length) return null;
+            const group = badgeAt(groups, map.project(hit.geometry.coordinates), point);
+            return Object.assign(stationTarget(station, group), { at: hit.geometry.coordinates });
+        }
+        const sector = n.sectors && n.sectors[idx];
+        return sector ? sectorTarget(sector, idx) : null;
+    }
+
+    function targetByKey(key) {
+        const n = state.network;
+        if (!n || !key) return null;
+        if (key.startsWith("sector:")) {
+            const idx = (n.sectors || []).findIndex(s => "sector:" + s.id === key);
+            return idx < 0 ? null : sectorTarget(n.sectors[idx], idx);
+        }
+        const [, icao, letter] = key.split(":");
+        const station = (n.stations || []).find(s => s.icao === icao);
+        const group = station && stationBadges(station).find(g => g.badge.letter === letter);
+        return group ? stationTarget(station, group) : null;
+    }
+
+    map.on("mousemove", e => {
+        if (state.hovering) {
+            if (state.networkHover) clearNetworkHover();
+            return;
+        }
+        const target = networkTarget(e.point);
+        map.getCanvas().style.cursor = target && target.kind === "atc" ? "pointer" : "";
+        if (!target) {
+            if (state.networkHover) clearNetworkHover();
+            return;
+        }
+        if (state.networkHover !== target.key) {
+            clearNetworkHover();
+            state.networkHover = target.key;
+            map.setFilter("net-sector-hover", ["==", ["get", "idx"], target.sectorIdx]);
+            if (target.kind === "traffic") {
+                networkPopup.setDOMContent(trafficContent(target.traffic));
+                showTrafficRoute(target.traffic);
+            } else {
+                networkPopup.setDOMContent(atcContent(target));
+            }
+        }
+        networkPopup.setLngLat(target.at || e.lngLat);
+        if (!networkPopup.isOpen()) networkPopup.addTo(map);
+    });
+
+    const panel = document.getElementById("atc-panel");
+
+    function onlineFor(logon) {
+        if (!Number.isFinite(logon)) return "";
+        const minutes = Math.max(0, Math.floor((Date.now() / 1000 - logon) / 60));
+        return `online ${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+    }
+
+    function panelContent(target) {
+        const root = document.createElement("div");
+        const add = (parent, cls, text, tag) => {
+            const el = document.createElement(tag || "div");
+            el.className = cls;
+            el.textContent = text;
+            parent.appendChild(el);
+            return el;
+        };
+        const head = add(root, "panel-head", "");
+        const titles = add(head, "", "");
+        add(titles, "panel-title", target.title);
+        if (target.subtitle) add(titles, "panel-subtitle", target.subtitle);
+        add(head, "panel-close", "✕", "button").addEventListener("click", closePanel);
+
+        target.controllers.forEach(c => {
+            const box = add(root, "panel-controller", "");
+            box.style.borderLeftColor = badgeColor(c.position);
+            add(box, "panel-callsign", c.callsign);
+            add(box, "panel-frequency", c.frequency);
+            const details = [c.name, c.rating, onlineFor(c.logon)].filter(Boolean).join("  ·  ");
+            if (details) add(box, "panel-details", details);
+            (c.atis || []).forEach(line => add(box, "panel-atis", line));
+        });
+        return root;
+    }
+
+    function renderPanel() {
+        const target = targetByKey(state.panelKey);
+        if (!target) {
+            closePanel();
+            return;
+        }
+        panel.replaceChildren(panelContent(target));
+        panel.style.display = "block";
+    }
+
+    function closePanel() {
+        state.panelKey = null;
+        panel.style.display = "none";
+        panel.replaceChildren();
+    }
+
+    map.on("click", e => {
+        if (state.hovering) return;
+        const target = networkTarget(e.point);
+        if (target && target.kind === "atc") {
+            state.panelKey = target.key;
+            renderPanel();
+        } else {
+            closePanel();
+        }
+    });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape") closePanel();
+    });
+    map.getCanvas().addEventListener("mouseleave", () => {
+        if (state.networkHover) clearNetworkHover();
+    });
 })();
 </script>
 </body>

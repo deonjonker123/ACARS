@@ -14,6 +14,7 @@ Usage:
                      fit=True)
     view.highlight_flight(12)        # None clears the highlight
     view.set_live({...})             # see assets/map/map.html for the shape; None removes it
+    view.set_network({...})          # online traffic + ATC, see set_network(); None removes it
     view.reset_view()                # whole-world view
 
 Calls made before the page has loaded are held and sent once it has (only
@@ -110,6 +111,14 @@ class MapView(QWebEngineView):
 
     def set_live(self, live):
         self._call("live", "setLive", live)
+
+    def set_network(self, network):
+        """Online traffic and ATC for the Live Map, or None to clear them:
+            {"traffic":  core.networks traffic entries (own aircraft left out),
+             "sectors":  core.sectors place()["sectors"],
+             "stations": core.sectors place()["stations"]}
+        Each call replaces the previous one."""
+        self._call("network", "setNetwork", network)
 
     def set_debrief(self, debrief):
         """One flight's debrief map: {"planned": [[lon, lat], ...] (dashed),

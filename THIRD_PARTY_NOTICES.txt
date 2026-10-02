@@ -65,6 +65,17 @@ given.
 9. OurAirports airport data (data/airports.csv)
    Released into the public domain - https://ourairports.com/data/
 
+10. ATC sector data for the Live Map (data/VATSpy.dat,
+    data/Boundaries.geojson, data/TRACONBoundaries.geojson)
+    - VATSpy Data Project (VATSIM and contributors)
+      https://github.com/vatsimnetwork/vatspy-data-project
+    - SimAware TRACON Project (VATSIM and contributors)
+      https://github.com/vatsimnetwork/simaware-tracon-project
+    Licence: Creative Commons Attribution-ShareAlike 4.0 International
+    (CC BY-SA 4.0) - https://creativecommons.org/licenses/by-sa/4.0/
+    Bundled and used unmodified. Newer copies are downloaded from the
+    projects' GitHub releases at runtime and are also used unmodified.
+
 Software the user installs separately (not bundled)
 ---------------------------------------------------
 - FSUIPC (Pete & John Dowson) - FSUIPC7 for Microsoft Flight Simulator,
@@ -77,8 +88,9 @@ Online services used (not bundled; each user's own account/IDs)
 ---------------------------------------------------------------
 - SimBrief (Navigraph) - flight plans, fetched with the pilot's own
   SimBrief Pilot ID. https://www.simbrief.com
-- VATSIM and IVAO public data feeds - used only to check whether the pilot
-  is connected. https://vatsim.net  -  https://ivao.aero
+- VATSIM and IVAO public data feeds - used to check whether the pilot is
+  connected, and to show online traffic and ATC on the Live Map.
+  https://vatsim.net  -  https://ivao.aero
 - GitHub - checking for new releases of this app.
 
 Microsoft Flight Simulator, Prepar3D and X-Plane are trademarks of their
