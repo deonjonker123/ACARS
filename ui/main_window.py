@@ -493,7 +493,7 @@ if __name__ == "__main__":
         l.addWidget(lbl, alignment=Qt.AlignCenter)
         return w
 
-    window.add_page("home", "Dashboard", "Virtual Aviation Gumph", placeholder("Home page goes here"))
+    window.add_page("home", "Dashboard", "", placeholder("Dashboard goes here"))
     window.add_page("live_map", "Live Map", "Active Flight", placeholder("Live Map page goes here"))
     window.add_page("flight_plan", "Flight Plan", "Dispatched Flight", placeholder("Flight Plan page goes here"))
     window.add_page("logbook", "Logbook", "Flight History", placeholder("Logbook page goes here"))
