@@ -108,7 +108,7 @@ def main():
         window = MainWindow(pilot_data=db.get_pilot())
 
         pages = [
-            ("home", "Dashboard", "Virtual Aviation Gumph", lambda: HomePage(db)),
+            ("home", "Dashboard", "", lambda: HomePage(db)),
             ("profile", "Profile", "Pilot Profile", lambda: ProfilePage(db)),
             ("live_map", "Live Map", "Active Flight", lambda: LiveMapPage(db)),
             ("flight_plan", "Flight Plan", "Dispatched Flight", lambda: FlightPlanPage()),
